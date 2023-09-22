@@ -1,6 +1,6 @@
 # FreeBSD HFS Driver
 
-This is a WIP port of Apple's HFS driver to FreeBSD.
+This is a WIP port of Apple's HFS driver to FreeBSD. The code is based on version 556.60.1.
 
 
 # Helpful Links
