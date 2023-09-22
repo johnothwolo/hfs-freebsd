@@ -1,12 +1,12 @@
 # $FreeBSD$
 
+PROG = hfs_util
+
 .if !defined(SRCROOT)
 SRCROOT		= ${.CURDIR}/../src
 .endif
 
 .PATH: ${SRCROOT}/${PROG}
-
-PROG = hfs_util
 
 # Enumerate Source files
 

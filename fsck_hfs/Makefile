@@ -6,7 +6,8 @@ PROG = fsck_hfs
 SRCROOT		= ${.CURDIR}/../src
 .endif
 
-.PATH: ${SRCROOT}/${PROG}
+.PATH: 	${SRCROOT}/${PROG} \
+		${SRCROOT}/${PROG}/dfalib
 
 # Enumerate Source files
 
@@ -22,33 +23,33 @@ SRCS    =	cache.c						\
 
 # DecompMakeData.c is a standalone tool
 
-SRCS	+=	dfalib/BTree.c				\
-			dfalib/BTreeAllocate.c		\
-			dfalib/BTreeMiscOps.c		\
-			dfalib/BTreeNodeOps.c		\
-			dfalib/BTreeScanner.c		\
-			dfalib/BTreeTreeOps.c		\
-			dfalib/BlockCache.c			\
-			dfalib/CatalogCheck.c		\
-			dfalib/HardLinkCheck.c		\
-			dfalib/SAllocate.c			\
-			dfalib/SBTree.c				\
-			dfalib/SCatalog.c			\
-			dfalib/SControl.c			\
-			dfalib/SDevice.c			\
-			dfalib/SExtents.c			\
-			dfalib/SKeyCompare.c		\
-			dfalib/SRebuildBTree.c		\
-			dfalib/SRepair.c			\
-			dfalib/SStubs.c				\
-			dfalib/SUtils.c				\
-			dfalib/SVerify1.c			\
-			dfalib/SVerify2.c			\
-			dfalib/VolumeBitmapCheck.c	\
-			dfalib/dirhardlink.c		\
-			dfalib/fsck_journal.c		\
-			dfalib/hfs_endian.c			\
-			dfalib/uuid.c
+SRCS	+=	BTree.c					\
+			BTreeAllocate.c			\
+			BTreeMiscOps.c			\
+			BTreeNodeOps.c			\
+			BTreeScanner.c			\
+			BTreeTreeOps.c			\
+			BlockCache.c			\
+			CatalogCheck.c			\
+			HardLinkCheck.c			\
+			SAllocate.c				\
+			SBTree.c				\
+			SCatalog.c				\
+			SControl.c				\
+			SDevice.c				\
+			SExtents.c				\
+			SKeyCompare.c			\
+			SRebuildBTree.c			\
+			SRepair.c				\
+			SStubs.c				\
+			SUtils.c				\
+			SVerify1.c				\
+			SVerify2.c				\
+			VolumeBitmapCheck.c		\
+			dirhardlink.c			\
+			fsck_journal.c			\
+			hfs_endian.c			\
+			uuid.c
 
 MAN		=	fsck_hfs.8
 
