@@ -68,7 +68,7 @@ hfs_converterinit(void)
 	SLIST_INIT(&hfs_encoding_list);
 
 	encodinglst_lck_grp_attr= lck_grp_attr_alloc_init();
-	encodinglst_lck_grp  = lck_grp_alloc_init("cnode_hash", encodinglst_lck_grp_attr);
+	encodinglst_lck_grp  = lck_grp_alloc_init("encodinglst", encodinglst_lck_grp_attr);
 	encodinglst_lck_attr = lck_attr_alloc_init();
 
 	lck_mtx_init(&encodinglst_mutex, encodinglst_lck_grp, encodinglst_lck_attr);

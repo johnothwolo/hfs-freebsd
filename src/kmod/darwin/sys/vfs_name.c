@@ -54,6 +54,7 @@ vfs_addname(const char *name, uint32_t len, uint32_t __unused nc_hash, uint32_t 
     LIST_FOREACH(entry, NAMETABLEHASH(hash), entry_link){
         if (strncmp(entry->name, name, len)) {
             found = true;
+            break;
         }
     }
     
@@ -63,7 +64,7 @@ vfs_addname(const char *name, uint32_t len, uint32_t __unused nc_hash, uint32_t 
     } else {
         // insert entry
         entry = malloc(sizeof(struct name_entry), M_NAME_HASH, M_ZERO);
-        entry->name = name;
+        ret = entry->name = name;
         entry->nchash = hash;
         LIST_INSERT_HEAD(NAMETABLEHASH(hash), entry, entry_link);
     }
@@ -84,6 +85,7 @@ vfs_removename(const char *name)
     LIST_FOREACH(entry, NAMETABLEHASH(hash), entry_link){
         if (strcmp(entry->name, name)) {
             found = true;
+            break;
         }
     }
     
@@ -103,20 +105,8 @@ vfs_removename(const char *name)
 void
 vfs_names_init(void)
 {
-    struct name_entry *entry, *tmp;
-    int i;
-
-    name_hashtbl = hashinit(hashtable_max, M_NAME_HASH, &tbl_mask);
-    mtx_init(&tbl_mtx, "name_cache_mutex", "tbl_mtx Lock", MTX_SPIN);
-    
-    tlock();
-    for (i = 0; i < tbl_mask; i++) {
-        LIST_FOREACH_SAFE(entry, &name_hashtbl[i], entry_link, tmp) {
-            LIST_REMOVE(entry, entry_link);
-            free(entry, M_NAME_HASH);
-        }
-    }
-    tunlock();
+    name_entry_hashtbl = hashinit(hashtable_max, M_NAME_HASH, &tbl_mask);
+    mtx_init(&tbl_mtx, "vnode_name_cache_mutex", "vnode_name_cache_mutex", MTX_SPIN);
 }
 
 void
