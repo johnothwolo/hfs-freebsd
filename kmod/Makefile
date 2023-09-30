@@ -106,8 +106,8 @@ SRCS   +=	hfs_kmod.c
 
 # Debug flags 	= DEBUG=1 $(inherited) _KERNEL __LP64__ KERNEL TARGET_OS_OSX
 # Release flags = _KERNEL __LP64__ KERNEL TARGET_OS_OSX
-
-CFLAGS += -D DEBUG=1
+DEBUG_FLAGS += -g -O0 -ggdb
+CFLAGS  = -D DEBUG=1
 CFLAGS += -D _KERNEL=1
 CFLAGS += -D KERNEL=1
 CFLAGS += -D __LP64__=1
