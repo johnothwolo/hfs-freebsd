@@ -155,6 +155,7 @@ VNOP_IOCTL(struct vnode* devvp, struct g_consumer *cp, u_long command, void* dat
     error = 0;
     
     if (!cp) {
+        kdb_backtrace();
         cleanup = true;
         g_topology_lock();
         error = g_vfs_open(devvp, &cp, "hfs", /* rw */1);
@@ -318,12 +319,19 @@ VNOP_IOCTL(struct vnode* devvp, struct g_consumer *cp, u_long command, void* dat
         }
         case _DKIOCCSPINEXTENT:
         case _DKIOCCSUNPINEXTENT:
-            error = 0;
             break;
         
         // corestorage disks not supported
         case DKIOCCORESTORAGE:
             error = ENOTSUP;
+            break;
+        
+        case DKIOCGETPHYSICALBLOCKSIZE:
+            *(uint32_t*)data = cp->provider->sectorsize;
+            break;
+            
+        case DKIOCISWRITABLE:
+            *(uint32_t*)data = cp->provider->acw;
             break;
             
         default:
