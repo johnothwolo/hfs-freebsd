@@ -145,7 +145,7 @@ typedef FSBufferDescriptor *FSBufferDescriptorPtr;
 enum {
 		kGetBlock			= 0x00000000,
 		kGetBlockHint		= 0x00000001,	// if set, the block is being looked up using hint
-		kForceReadBlock		= 0x00000002,	//€€ how does this relate to Read/Verify? Do we need this?
+		kForceReadBlock		= 0x00000002,	//Ã„Ã„ how does this relate to Read/Verify? Do we need this?
 		kGetEmptyBlock		= 0x00000008
 };
 typedef u_int32_t	GetBlockOptions;
@@ -356,6 +356,8 @@ extern int BTSetUserData(FCB *filePtr, void * dataPtr, int dataSize);
 
 /* B-tree node reserve routines. */
 extern void BTReserveSetup(void);
+
+extern void BTReserveDestroy(void);
 
 extern int  BTReserveSpace(FCB *file, int operations, void * data);
 

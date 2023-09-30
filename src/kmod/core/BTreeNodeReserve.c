@@ -100,6 +100,18 @@ void BTReserveSetup(void)
 	lck_mtx_init(&nr_mutex, nr_lck_grp, nr_lck_attr);
 }
 
+void BTReserveDestroy(void)
+{
+    hashdestroy(nr_hashtbl, M_TEMP, nr_hashmask);
+
+	lck_mtx_destroy(&nr_mutex, nr_lck_grp);
+
+	lck_grp_free(nr_lck_grp);
+	lck_grp_attr_free(nr_lck_grp_attr);
+	lck_attr_free(nr_lck_attr);
+
+	
+}
 
 /*
  * BTReserveSpace - obtain a node reserve (for current thread)

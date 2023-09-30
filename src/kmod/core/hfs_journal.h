@@ -213,6 +213,12 @@ __BEGIN_DECLS
 void      journal_init(void);
 
 /*
+ * Uninitialize the journal data structures.
+ */
+void      journal_uninit(void);
+
+
+/*
  * Call journal_create() to create a new journal.  You only
  * call this once, typically at file system creation time.
  *

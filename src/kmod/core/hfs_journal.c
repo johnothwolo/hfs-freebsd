@@ -251,6 +251,14 @@ journal_init(void)
 	jnl_mutex_group  = lck_grp_alloc_init("jnl-mutex", jnl_group_attr);
 }
 
+void
+journal_uninit(void)
+{
+	lck_grp_free(jnl_mutex_group);
+	lck_attr_free(jnl_lock_attr);
+	lck_grp_attr_free(jnl_group_attr);
+}
+
 __inline__ void
 journal_lock(journal *jnl)
 {

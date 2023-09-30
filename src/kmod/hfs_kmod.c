@@ -12,7 +12,11 @@
 #include <sys/kernel.h>
 #include <sys/systm.h>
 #include <sys/queue.h>
+#include <sys/smp.h>
+
 #include "hfs_encodings/hfs_encodings_internal.h"
+#include "core/hfs.h"
+#include "core/hfs_cnode.h"
 
 extern void darwin_compat_init(void);
 extern void darwin_compat_uninit(void);
@@ -30,14 +34,25 @@ static int hfs_kmod_modevent(struct module *inModule, int inEvent, void *inArg)
     switch (inEvent)
     {
         case MOD_LOAD:
-            uprintf("Loading hfs converter \n");
-            hfs_converterinit();
+            uprintf("Loading hfs kmod \n");
             darwin_compat_init();
+            hfs_converterinit();
+            hfs_init_zones();
+            hfs_sysctl_register();
+            if ((2 * mp_ncpus) > MAX_CACHED_ORIGINS_DEFAULT) {
+                _hfs_max_origins = 2 * mp_ncpus;
+                _hfs_max_file_origins = 2 * mp_ncpus;
+            } else if ((2 * mp_ncpus) > MAX_CACHED_FILE_ORIGINS_DEFAULT) {
+                _hfs_max_file_origins = 2 * mp_ncpus;
+            }
+            
             break;
             // is this right?
         case MOD_SHUTDOWN: /* FALLTHROUGH */
         case MOD_UNLOAD:
-            uprintf("Unoading hfs converter \n");
+            uprintf("Unoading hfs kmod \n");
+            hfs_destroy_zones();
+            hfs_sysctl_unregister();
             hfs_converterdone();
             darwin_compat_uninit();
             break;

@@ -457,6 +457,7 @@ extern int  hfs_filedone(struct vnode *vp, struct thread *td,
  * HFS cnode hash functions.
  */
 extern void  hfs_chashinit(void);
+extern void  hfs_chashdestroy(void);
 extern void  hfs_chashinit_finish(struct hfsmount *hfsmp);
 extern void  hfs_delete_chash(struct hfsmount *hfsmp);
 extern int   hfs_chashremove(struct hfsmount *hfsmp, struct cnode *cp);

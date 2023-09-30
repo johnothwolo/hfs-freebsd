@@ -95,6 +95,14 @@ hfs_chashinit()
 	chash_lck_attr = lck_attr_alloc_init();
 }
 
+void
+hfs_chashdestroy()
+{
+	lck_grp_free(chash_lck_grp);
+	lck_grp_attr_free(chash_lck_grp_attr);
+	lck_attr_free(chash_lck_attr);
+}
+
 static void hfs_chash_lock(struct hfsmount *hfsmp) 
 {
 	lck_mtx_lock(&hfsmp->hfs_chash_mutex);
