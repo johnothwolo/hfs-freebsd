@@ -18,9 +18,9 @@
 #include <sys/malloc.h>
 #include <sys/fnv_hash.h>
 
-#define NAMETABLEHASH(nchash)    (&name_hashtbl[nchash & tbl_mask])
+#define NAMETABLEHASH(nchash)    (&name_entry_hashtbl[nchash & tbl_mask])
 
-MALLOC_DEFINE(M_NAME_HASH, "XNU-style namecache", "XNU-style namecache");
+MALLOC_DEFINE(M_NAME_HASH, "vnode name cache", "vnode name cache");
 
 struct name_entry {
     LIST_ENTRY(name_entry) entry_link;
@@ -29,8 +29,8 @@ struct name_entry {
     uint32_t refcount;
 };
 
-static hashtable_max = 10240; // TODO: make it a tunable?
-static LIST_HEAD(thread_local_head, name_entry) *name_hashtbl;
+static int hashtable_max = 10240; // TODO: make it a tunable?
+static LIST_HEAD(name_entry_head, name_entry) *name_entry_hashtbl;
 static u_long       tbl_mask;        /* size of hash table - 1 */
 static struct mtx   tbl_mtx;
 
@@ -117,11 +117,11 @@ vfs_names_destroy(void)
     
     tlock();
     for (i = 0; i < tbl_mask; i++) {
-        LIST_FOREACH_SAFE(entry, &name_hashtbl[i], entry_link, tmp) {
+        LIST_FOREACH_SAFE(entry, &name_entry_hashtbl[i], entry_link, tmp) {
             LIST_REMOVE(entry, entry_link);
             free(entry, M_NAME_HASH);
         }
     }
     tunlock();
-    hashdestroy(name_hashtbl, M_NAME_HASH, hashtable_max);
+    hashdestroy(name_entry_hashtbl, M_NAME_HASH, hashtable_max);
 }
