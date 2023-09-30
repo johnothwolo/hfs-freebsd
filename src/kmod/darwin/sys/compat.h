@@ -168,4 +168,13 @@ void clock_interval_to_deadline(uint32_t interval, uint32_t scale_factor,
 
 void delay_for_interval(uint32_t interval, uint32_t scale_factor);
 
+enum {
+    VNODE_UPDATE_PARENT     = 0x01,
+    VNODE_UPDATE_NAME       = 0x02,
+    VNODE_UPDATE_CACHE      = 0x04,
+    VNODE_UPDATE_PURGE      = 0x08,
+};
+
+void vnode_update_identity(struct vnode*, struct vnode* , const char *, int, uint32_t, int);
+
 #endif /* compat_h */

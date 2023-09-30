@@ -540,3 +540,25 @@ vfs_ioattr(struct mount *mp, struct g_consumer *cp, uint64_t *maxio)
     
     *maxio = gkd.di.maxiosize;
 }
+
+void
+vnode_update_identity(struct vnode* vp, struct vnode* dvp, const char *name,
+                      int name_len, uint32_t name_hashval, int flags)
+{
+    struct componentname cn = {0};
+    cn.cn_pnbuf = (char*) name;
+    cn.cn_nameptr = (char*) name;
+    cn.cn_namelen = name_len;
+    // cn doesn't relaly need other elements init'ed
+    
+    if ((flags & (VNODE_UPDATE_PURGE | VNODE_UPDATE_PARENT | VNODE_UPDATE_CACHE | VNODE_UPDATE_NAME))) {
+        
+        cache_purge(vp);
+        
+        if (flags & VNODE_UPDATE_PURGE){
+            return;
+        }
+
+        cache_enter(dvp, vp, &cn);
+    }
+}

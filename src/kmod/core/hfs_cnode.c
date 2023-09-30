@@ -905,7 +905,7 @@ hfs_getnewvnode(
     int issystemfile;
     int wantrsrc;
     int hflags = 0;
-    int need_update_identity = 0;
+    int need_update_identity = 0, nocache = 0;
     enum vtype vtype;
 
     struct vnode *provided_vp = NULL;
@@ -1025,8 +1025,7 @@ hfs_getnewvnode(
         if (*vpp && cnp && cnp->cn_nameptr && descp && descp->cd_nameptr && strncmp((const char *)cnp->cn_nameptr, (const char *)descp->cd_nameptr, descp->cd_namelen) != 0)
 #endif
         {
-            // FIXME: this...
-//            vnode_update_identity (*vpp, dvp, (const char *)descp->cd_nameptr, descp->cd_namelen, 0, VNODE_UPDATE_NAME);
+            vnode_update_identity (*vpp, dvp, (const char *)descp->cd_nameptr, descp->cd_namelen, 0, VNODE_UPDATE_NAME);
         }
         if ((cp->c_flag & C_HARDLINK) && descp->cd_nameptr && descp->cd_namelen > 0) {
             /* If cnode is uninitialized, its c_attr will be zeroed out; cnids wont match. */
@@ -1100,9 +1099,11 @@ hfs_getnewvnode(
                         // the name of this file.  This is related to:
                         //    <rdar://problem/8044697> FSEvents doesn't always decompose diacritical unicode chars in the paths of the changed directories
                         //
-                        cache_enter(dvp, vp, cnp);
+                        vnode_update_identity (*vpp, dvp, (const char *)cp->c_desc.cd_nameptr, cp->c_desc.cd_namelen, 0,
+                                               (VNODE_UPDATE_PARENT | VNODE_UPDATE_NAME));
                     } else if (cnp) {
-                        cache_enter(dvp, vp, cnp);
+                        vnode_update_identity (*vpp, dvp, cnp->cn_nameptr, (int)cnp->cn_namelen, vp->v_nchash,
+                                               (VNODE_UPDATE_PARENT | VNODE_UPDATE_NAME));
                     }
                 }
             }
@@ -1267,8 +1268,8 @@ hfs_getnewvnode(
     }
 
     if (vtype == VDIR) {
-            if (cp->c_vp != NULL)
-                panic("hfs_getnewvnode: orphaned vnode (data)");
+        if (cp->c_vp != NULL)
+            panic("hfs_getnewvnode: orphaned vnode (data)");
         cvpp = &cp->c_vp;
     } else {
         /*
@@ -1304,7 +1305,7 @@ hfs_getnewvnode(
         }
     }
     if (tvp != NULLVP) {
-            /*
+        /*
          * grab an iocount on the vnode we weren't
          * interested in (i.e. we want the resource fork
          * but the cnode already has the data fork)
@@ -1325,8 +1326,9 @@ hfs_getnewvnode(
          * the matching vput will happen in hfs_unlock
          * after we've dropped the cnode lock
          */
-            if ( vget(tvp, 0) != 0)
-                cp->c_flag &= ~(C_NEED_RVNODE_PUT | C_NEED_DVNODE_PUT);
+        if ( vget(tvp, 0) != 0) {
+            cp->c_flag &= ~(C_NEED_RVNODE_PUT | C_NEED_DVNODE_PUT);
+        }
     }
     vp->v_mount = mp;
     vp->v_type = vtype;
@@ -1375,11 +1377,11 @@ hfs_getnewvnode(
         // the correct bytes for this filename.  For more details, see:
         //   <rdar://problem/8044697> FSEvents doesn't always decompose diacritical unicode chars in the paths of the changed directories
         //
-
-        cache_enter(dvp, vp, cnp);
+        
         need_update_identity = 1;
+        nocache = 1;
     } else if (dvp == NULLVP || cnp == NULL || !(cnp->cn_flags & MAKEENTRY) || (flags & GNV_NOCACHE)) {
-        cache_enter(dvp, vp, cnp);
+        nocache = 1;
     }
 
     /* Tag system files */
@@ -1447,7 +1449,7 @@ hfs_getnewvnode(
         //    <rdar://problem/8044697> FSEvents doesn't always decompose diacritical unicode chars in the paths of the changed directories
         // for more details.
         //
-        cache_enter(dvp, vp, cnp);
+        vnode_update_identity (vp, dvp, (const char *)cp->c_desc.cd_nameptr, cp->c_desc.cd_namelen, 0, VNODE_UPDATE_NAME);
     }
 
     /*
