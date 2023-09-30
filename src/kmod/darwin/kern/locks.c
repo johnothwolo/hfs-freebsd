@@ -92,23 +92,24 @@ lck_mtx_free(lck_mtx_t *lck, lck_grp_t *grp)
 
 #pragma mark - rw lock
 
+#define LOCKMGR_RWINIT_FLAGS        (LC_SLEEPLOCK | LC_SLEEPABLE | LC_RECURSABLE | LC_UPGRADABLE)
+
 lck_rw_t*
 lck_rw_alloc_init(lck_grp_t *grp, lck_attr_t *attr)
 {
     lck_rw_t * lck = malloc(sizeof(lck_rw_t), M_DARWIN_LOCKS, M_ZERO);
     lck->grp = grp;
-    lockinit(&lck->base, PVFS, grp->grp_name, VLKTIMEOUT, LK_CANRECURSE);
-    
+    lck_rw_init(lck, grp, attr);
     return lck;
 }
 
 void
 lck_rw_init(lck_rw_t *lck, lck_grp_t *grp, lck_attr_t *attr)
 {
-    KASSERT(lck, "null mutex passed");
+    KASSERT(lck, "null rwlock passed");
     lck->grp = grp;
     lck->attr = attr;
-    lockinit(&lck->base, PVFS, grp->grp_name, VLKTIMEOUT, LK_CANRECURSE | attr->lkflags);
+    lockinit(&lck->base, PVFS, grp->grp_name, VLKTIMEOUT, LOCKMGR_RWINIT_FLAGS);
 }
 
 void
