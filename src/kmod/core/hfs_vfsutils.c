@@ -72,6 +72,7 @@
 
 /* Enable/disable debugging code for live volume resizing, defined in hfs_resize.c */
 extern int hfs_resize_debug;
+extern struct proc *bufdaemonproc;
 
 static void ReleaseMetaFileVNode(struct vnode *vp);
 static int  hfs_late_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp, void *_args);
@@ -880,7 +881,9 @@ OSErr hfs_MountHFSPlusVolume(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp,
 		/*
 		 * Scan the bitmap asynchronously.
 		 */
-        kthread_add(&hfs_scan_blocks, hfsmp, NULL, &allocator_scanner, 0, 0, "hfs_scan_blocks");
+
+        kproc_kthread_add(&hfs_scan_blocks, hfsmp, &bufdaemonproc,
+            &allocator_scanner, 0, 0, "hfs_scan_blocks", "%s worker", hfsmp->hfs_mp->mnt_stat.f_mntonname);
 
 		/*
 		 * Wait until it registers that it's got the appropriate locks
@@ -4398,12 +4401,20 @@ hfs_zone_entry_t hfs_zone_entries[HFS_NUM_ZONES] = {
 
 hfs_zone_t hfs_zones[HFS_NUM_ZONES];
 
-void hfs_init_zones(void) {
+void hfs_init_zones(void)
+{
 	for (int i = 0; i < HFS_NUM_ZONES; i++) {
         hfs_zones[i].hz_zone = uma_zcreate(hfs_zone_entries[i].hze_name, hfs_zone_entries[i].hze_elem_size,
                                            NULL, NULL, NULL, NULL,
                                            0, UMA_ZONE_ZINIT);
 	}
+}
+
+void hfs_destroy_zones(void)
+{
+    for (int i = 0; i < HFS_NUM_ZONES; i++) {
+        uma_zdestroy(hfs_zones[i].hz_zone);
+    }
 }
 
 void *hfs_zalloc(hfs_zone_kind_t zone)
