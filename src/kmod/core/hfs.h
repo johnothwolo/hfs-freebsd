@@ -1046,6 +1046,7 @@ typedef struct hfs_zone {
 } hfs_zone_t;
 
 void hfs_init_zones(void);
+void hfs_destroy_zones(void);
 void *hfs_zalloc(hfs_zone_kind_t type);
 void hfs_zfree(void *ptr, hfs_zone_kind_t type);
 

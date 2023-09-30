@@ -141,6 +141,7 @@ extern struct thread* decmpfs_ctx;
 
 /* client filesystem entrypoints */
 void decmpfs_init(void);
+void decmpfs_uninit(void);
 decmpfs_cnode *decmpfs_cnode_alloc(void);
 void decmpfs_cnode_free(decmpfs_cnode *dp);
 void decmpfs_cnode_init(decmpfs_cnode *cp);

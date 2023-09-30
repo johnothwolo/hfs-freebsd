@@ -34,6 +34,7 @@
 UNUSED_SYMBOL(register_decmpfs_decompressor)
 UNUSED_SYMBOL(unregister_decmpfs_decompressor)
 UNUSED_SYMBOL(decmpfs_init)
+UNUSED_SYMBOL(decmpfs_uninit)
 UNUSED_SYMBOL(decmpfs_read_compressed)
 UNUSED_SYMBOL(decmpfs_cnode_cmp_type)
 UNUSED_SYMBOL(decmpfs_cnode_get_vnode_state)
@@ -2027,14 +2028,14 @@ SECURITY_READ_ONLY_EARLY(static decmpfs_registration) Type1Reg =
 
 #pragma mark --- decmpfs initialization ---
 
+static int done = 0;
+
 void
 decmpfs_init()
 {
-    static int done = 0;
     if (done) {
         return;
     }
-
     
     // proc0 or thread0
     decmpfs_ctx = vfs_context_create(vfs_context_kernel());
@@ -2048,5 +2049,13 @@ decmpfs_init()
     register_decmpfs_decompressor(CMP_Type1, &Type1Reg);
 
     done = 1;
+}
+
+
+void
+decmpfs_uninit()
+{
+    hfs_assert(done == 1);
+#error TODO....
 }
 #endif /* FS_COMPRESSION */
