@@ -19,6 +19,7 @@
 #include <sys/fnv_hash.h>
 #include <sys/lockmgr.h>
 #include <sys/rwlock.h>
+#include <sys/kdb.h>
 
 #include <vm/vm.h>
 #include <vm/vm_object.h>
