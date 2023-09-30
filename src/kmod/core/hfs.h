@@ -200,7 +200,8 @@ typedef struct hfsmount {
 	/* Access to VFS and devices */
 	struct mount		*hfs_mp;				/* filesystem vfs structure */
     struct g_consumer   *hfs_cp;
-	struct vnode		*hfs_odevvp;			/* original block device mounted vnode */
+	// struct vnode		*hfs_odevvp;			/* original block device mounted vnode */
+	struct bufobj   	*hfs_bo; 				/* buffer object for char device */
     struct vnode        *hfs_devvp;             /* private copy of original devvp */
 	struct vnode *		hfs_extents_vp;
 	struct vnode *		hfs_catalog_vp;
@@ -642,6 +643,7 @@ enum { kHFSPlusMaxFileNameBytes = kHFSPlusMaxFileNameChars * 3 };
 #define VTOVFS(VP)  ((VP)->v_mount)
 #define HFSTOVFS(HFSMP) ((HFSMP)->hfs_mp)
 #define HFSTOCP(HFSMP) ((HFSMP)->hfs_cp)
+#define HFSTOBO(HFSMP) ((HFSMP)->hfs_bo)
 #define VCBTOVFS(VCB)   HFSTOVFS(VCB)
 
 /*

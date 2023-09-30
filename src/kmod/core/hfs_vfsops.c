@@ -92,6 +92,7 @@
 
 #include <geom/geom.h>
 #include <geom/geom_int.h>
+#include <geom/geom_vfs.h>
 
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
@@ -1182,7 +1183,7 @@ void hfs_scan_blocks(void *arg)
 	vinvalbuf(hfsmp->hfs_allocation_vp, 0, 0, 0);
 	
 	hfs_systemfile_unlock(hfsmp, flags);
-
+    kthread_exit();
 }
 
 /*
@@ -1195,7 +1196,9 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	struct proc *p = td->td_proc;
 	int retval = E_NONE;
 	struct hfsmount	*hfsmp = NULL;
+	struct g_consumer *cp = NULL;
 	struct buf *bp;
+	struct bufobj *bo;
 	struct cdev* dev;
 	HFSMasterDirectoryBlock *mdbp = NULL;
 	int ronly;
@@ -1232,15 +1235,27 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 //    if (mp) {
 //        vfs_setlocklocal(mp);
 //    }
-    
+
+	g_topology_lock();
+	if ((retval = g_vfs_open(devvp, &cp, "hfs", ronly ? 0 : 1)) != 0){
+		VOP_UNLOCK(devvp);
+		return retval;
+	}
+	g_topology_unlock();
+	bo = &devvp->v_bufobj;
+	bo->bo_private = cp;
+	bo->bo_ops = g_vfs_bufops;
+	VOP_UNLOCK(devvp);
+
 	/* Get the logical block size (treated as physical block size everywhere) */
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
 		if (HFS_MOUNT_DEBUG) {
 			printf("hfs_mountfs: DKIOCGETBLOCKSIZE failed\n");
 		}
 		retval = ENXIO;
 		goto error_exit;
 	}
+
 	if (log_blksize == 0 || log_blksize > 1024*1024*1024) {
 		printf("hfs: logical block size 0x%x looks bad.  Not mounting.\n", log_blksize);
 		retval = ENXIO;
@@ -1248,7 +1263,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	}
 	
 	/* Get the physical block size. */
-	retval = VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETPHYSICALBLOCKSIZE, (caddr_t)&phys_blksize, 0);
+	retval = VNOP_IOCTL(devvp, cp, DKIOCGETPHYSICALBLOCKSIZE, (caddr_t)&phys_blksize, 0);
 	if (retval) {
 		if ((retval != ENOTSUP) && (retval != ENOTTY)) {
 			if (HFS_MOUNT_DEBUG) {
@@ -1282,7 +1297,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	if (log_blksize > 512) {
 		u_int32_t size512 = 512;
 
-		if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETBLOCKSIZE, (caddr_t)&size512, 0)) {
+		if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKSIZE, (caddr_t)&size512, 0)) {
 			if (HFS_MOUNT_DEBUG) {
 				printf("hfs_mountfs: DKIOCSETBLOCKSIZE failed \n");
 			}
@@ -1291,9 +1306,9 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 		}
 	}
 	/* Get the number of 512 byte physical blocks. */
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
 		/* resetting block size may fail if getting block count did */
-		(void)VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0);
+		(void)VNOP_IOCTL(devvp, cp, DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0);
 		if (HFS_MOUNT_DEBUG) {
 			printf("hfs_mountfs: DKIOCGETBLOCKCOUNT failed\n");
 		}
@@ -1332,7 +1347,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 
 	/* Now switch to our preferred physical block size. */
 	if (log_blksize > 512) {
-        if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
+        if (VNOP_IOCTL(devvp, cp, DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
 			if (HFS_MOUNT_DEBUG) { 
 				printf("hfs_mountfs: DKIOCSETBLOCKSIZE (2) failed\n");
 			}
@@ -1340,7 +1355,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 			goto error_exit;
 		}
 		/* Get the count of physical blocks. */
-		if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
+		if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
 			if (HFS_MOUNT_DEBUG) { 
 				printf("hfs_mountfs: DKIOCGETBLOCKCOUNT (2) failed\n");
 			}
@@ -1384,7 +1399,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	 * NOTE: vfs_init_io_attributes has not been called yet, so we can't use the io_flags field
 	 * returned by vfs_ioattr.  We need to call VNOP_IOCTL ourselves.
 	 */
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETFEATURES, (caddr_t)&device_features, 0) == 0) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETFEATURES, (caddr_t)&device_features, 0) == 0) {
 		if (device_features & DK_FEATURE_UNMAP) {
 			hfsmp->hfs_flags |= HFS_UNMAP;
 		}
@@ -1398,7 +1413,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	 * hotfiles.
 	 */
     
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCISSOLIDSTATE, (caddr_t)&isssd, 0) == 0) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCISSOLIDSTATE, (caddr_t)&isssd, 0) == 0) {
 		if (isssd) {
 			hfsmp->hfs_flags |= HFS_SSD;
 		}
@@ -1408,7 +1423,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 #if corestorage
 	dk_corestorage_info_t cs_info;
 	memset(&cs_info, 0, sizeof(dk_corestorage_info_t));
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCCORESTORAGE, (caddr_t)&cs_info, 0) == 0) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCCORESTORAGE, (caddr_t)&cs_info, 0) == 0) {
 		hfsmp->hfs_flags |= HFS_CS;
 #if rootmount
 		if (isroot && (cs_info.flags & DK_CORESTORAGE_PIN_YOUR_METADATA)) {
@@ -1444,7 +1459,9 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
         mp->mnt_data = hfsmp;
     }
     
+    hfsmp->hfs_cp = cp;
 	hfsmp->hfs_mp = mp;			/* Make VFSTOHFS work */
+	hfsmp->hfs_bo = bo;
 	hfsmp->hfs_raw_dev = (devvp)->v_rdev;
 	hfsmp->hfs_devvp = devvp;
 	vref(devvp);  /* Hold a ref on the device, dropped when hfsmp is freed. */
@@ -1456,7 +1473,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	hfsmp->hfs_flags |= HFS_WRITEABLE_MEDIA;
 	if (ronly)
 		hfsmp->hfs_flags |= HFS_READ_ONLY;
-	if (args->hfs_unknown_perms)
+	if (args && args->hfs_unknown_perms)
 		hfsmp->hfs_flags |= HFS_UNKNOWN_PERMS;
 
 #if QUOTA
@@ -1485,17 +1502,15 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 			mntwrapper = 1;
 	} else {
 		/* Even w/o explicit mount arguments, MNT_UNKNOWNPERMISSIONS requires setting up uid, gid, and mask: */
-		if (args->hfs_unknown_perms) {
 			hfsmp->hfs_uid = UNKNOWNUID;
 			hfsmp->hfs_gid = UNKNOWNGID;
 //			vfs_setowner(mp, hfsmp->hfs_uid, hfsmp->hfs_gid);			/* tell the VFS */
 			hfsmp->hfs_dir_mask = UNKNOWNPERMISSIONS & ALLPERMS;		/* 0777: rwx---rwx */
 			hfsmp->hfs_file_mask = UNKNOWNPERMISSIONS & DEFFILEMODE;	/* 0666: no --x by default? */
-		}
 	}
 
 	/* Find out if disk media is writable. */
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCISWRITABLE, (caddr_t)&iswritable, 0) == 0) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCISWRITABLE, (caddr_t)&iswritable, 0) == 0) {
 		if (iswritable)
 			hfsmp->hfs_flags |= HFS_WRITEABLE_MEDIA;
 		else
@@ -1540,11 +1555,11 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 		/* HFS disks can only use 512 byte physical blocks */
 		if (log_blksize > kHFSBlockSize) {
 			log_blksize = kHFSBlockSize;
-			if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
+			if (VNOP_IOCTL(devvp, cp, DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
 				retval = ENXIO;
 				goto error_exit;
 			}
-			if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
+			if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
 				retval = ENXIO;
 				goto error_exit;
 			}
@@ -1605,7 +1620,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 				    " switching to 512\n", log_blksize);
 				log_blksize = 512;
                 
-				if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
+				if (VNOP_IOCTL(devvp, cp, DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
 
 					if (HFS_MOUNT_DEBUG) {
 						printf("hfs_mountfs: DKIOCSETBLOCKSIZE (3) failed\n");
@@ -1614,7 +1629,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 					goto error_exit;
 				}
                 
-				if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
+				if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
 					if (HFS_MOUNT_DEBUG) {
 						printf("hfs_mountfs: DKIOCGETBLOCKCOUNT (3) failed\n");
 					}
@@ -1729,7 +1744,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 		//
 		hfsmp->jnl = NULL;
 		hfsmp->jvp = NULL;
-		if (args->journal_disable) {
+		if (args != NULL && args->journal_disable) {
 		    jnl_disable = 1;
 		}
 				
@@ -1839,14 +1854,14 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 					"(%d) switching to 512\n", log_blksize);
 			log_blksize = 512;
             
-			if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
+			if (VNOP_IOCTL(devvp, cp, DKIOCSETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {
 				if (HFS_MOUNT_DEBUG) {
 					printf("hfs_mountfs: DKIOCSETBLOCKSIZE (4) failed \n");
 				}
 				retval = ENXIO;
 				goto error_exit;
 			}
-			if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
+			if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKCOUNT, (caddr_t)&log_blkcnt, 0)) {
 				if (HFS_MOUNT_DEBUG) {
 					printf("hfs_mountfs: DKIOCGETBLOCKCOUNT (4) failed \n");
 				}
@@ -2023,11 +2038,10 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	}
 
 	const char *dev_name = (hfsmp->hfs_devvp
-							? devtoname(hfsmp->hfs_devvp->v_rdev) : NULL);
+							? devtoname(hfsmp->hfs_devvp->v_rdev) : "unknown device");
 
 	printf("hfs: mounted %s on device %s\n",
-		   (hfsmp->vcbVN[0] ? (const char*) hfsmp->vcbVN : "unknown"),
-		   dev_name ?: "unknown device");
+		   (hfsmp->vcbVN[0] == 0? (const char*) hfsmp->vcbVN : "Untitled"), dev_name);
     
 	/*
 	 * Start looking for free space to drop below this level and generate a
@@ -2043,8 +2057,14 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	return (0);
 
 error_exit:
-	if (bp)
+	if (bp != NULL)
 		brelse(bp);
+
+	if (cp != NULL){
+		g_topology_lock();
+		g_vfs_close(cp);
+		g_topology_unlock();
+	}
 
 	hfs_free(mdbp, kMDBSize);
 
@@ -2267,6 +2287,10 @@ hfs_unmount(struct mount *mp, int mntflags)
 		vrele(tmpvp);
 	}
 #endif /* HFS_SPARSE_DEV */
+
+	g_topology_lock();
+	g_vfs_close(hfsmp->hfs_cp);
+	g_topology_unlock();
 
 	vrele(hfsmp->hfs_devvp);
 
@@ -2756,11 +2780,11 @@ hfs_vptofh(struct vop_vptofh_args *ap)
  * never deallocate memory allocated by lock attribute and group initializations 
  * in this function.
  */
-static int
+static int done = 0;
+
+int
 hfs_init(__unused struct vfsconf *vfsp)
 {
-	static int done = 0;
-
 	if (done)
 		return (0);
 	done = 1;
@@ -2779,6 +2803,30 @@ hfs_init(__unused struct vfsconf *vfsp)
 #endif
 
 	journal_init();
+
+	return (0);
+}
+
+int
+hfs_uninit(__unused struct vfsconf *vfsp)
+{
+	hfs_assert(done == 1); 
+
+	hfs_chashdestroy();
+
+	BTReserveDestroy();
+	
+	lck_grp_free(hfs_mutex_group);
+	lck_grp_free(hfs_rwlock_group);
+	lck_grp_free(hfs_spinlock_group);
+	lck_attr_free(hfs_lock_attr);
+	lck_grp_attr_free(hfs_group_attr);
+	
+#if HFS_COMPRESSION
+	decmpfs_uninit();
+#endif
+
+	journal_uninit();
 
 	return (0);
 }
@@ -3335,7 +3383,7 @@ hfs_vfs_vget(struct mount *mp, ino_t ino, int flags, struct vnode **vpp)
  * If the object is a file then it will represent the data fork.
  */
 int
-hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int skiplock, int allow_deleted)
+hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int lkflags, int allow_deleted)
 {
 	struct vnode *vp = NULLVP;
 	struct cat_desc cndesc;
@@ -3357,7 +3405,7 @@ hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int skiplock, 
 	/*
 	 * Check the hash first
 	 */
-	vp = hfs_chash_getvnode(hfsmp, cnid, 0, skiplock, allow_deleted);
+	vp = hfs_chash_getvnode(hfsmp, cnid, 0, lkflags, allow_deleted);
 	if (vp) {
 		*vpp = vp;
 		return(0);
@@ -3496,7 +3544,7 @@ hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int skiplock, 
 	cat_releasedesc(&cndesc);
 
 	*vpp = vp;
-	if (vp && skiplock) {
+	if (vp && (lkflags & LK_TYPE_MASK) == 0) {
 		hfs_unlock(VTOC(vp));
 	}
 	return (error);
@@ -4746,6 +4794,7 @@ static int hfs_journal_replay(struct vnode* devvp, struct thread *td)
 	if (devvp->v_type != VCHR && devvp->v_type != VBLK)
 		return EINVAL;
 
+	// FIXME: null cp
 	retval = hfs_mountfs(devvp, NULL, NULL, /* journal_replay_only: */ 1, td);
 	buf_flushdirtyblks(devvp, TRUE, 0, "hfs_journal_replay");
 	
@@ -4871,7 +4920,7 @@ struct vfsops hfs_vfsops = {
     .vfs_fhtovp             = hfs_fhtovp,
 //    .vfs_checkexp           = ,
     .vfs_init               = hfs_init,
-//    .vfs_uninit             = ,
+	.vfs_uninit             = hfs_uninit,
     .vfs_extattrctl         = vfs_stdextattrctl,
 //    .vfs_sysctl             = hfs_sysctl,
 //    .vfs_susp_clean         = ,

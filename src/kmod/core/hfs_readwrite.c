@@ -3674,7 +3674,7 @@ hfs_vnop_strategy(struct vop_strategy_args *ap)
 #endif
 	
     if (vp->v_type == VBLK || vp->v_type == VCHR)
-        panic("ext2_strategy: spec");
+        panic("%s: spec", __func__);
     if (bp->b_blkno == bp->b_lblkno) {
         error = hfs_bmap(vp, bp->b_lblkno, NULL, &blkno, NULL);
 
@@ -3695,7 +3695,7 @@ hfs_vnop_strategy(struct vop_strategy_args *ap)
     
     bp->b_iooffset = dbtob(bp->b_blkno);
     
-	bstrategy(bp);
+    BO_STRATEGY(HFSTOBO(VFSTOHFS(vp->v_mount)), bp);
 	
 	return error;
 }
