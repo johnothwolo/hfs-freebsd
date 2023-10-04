@@ -623,10 +623,10 @@ typedef struct filefork FCB;
 #define AVERAGE_HFSDIRENTRY_SIZE  (8+HFS_AVERAGE_NAME_SIZE+4)
 
 #define STD_DIRENT_LEN(namlen) \
-	((sizeof(struct dirent) - (NAME_MAX+1)) + (((namlen)+1 + 3) &~ 3))
+	((sizeof(struct dirent) - (MAXNAMLEN+1)) + (((namlen)+1 + 3) &~ 3))
 
 #define EXT_DIRENT_LEN(namlen) \
-	((sizeof(struct dirent) + (namlen) - (MAXPATHLEN-1) + 7) & ~7)
+	((sizeof(struct dirent) + (namlen) - (MAXNAMLEN-1) + 7) & ~7)
 
 
 enum { kHFSPlusMaxFileNameBytes = kHFSPlusMaxFileNameChars * 3 };
