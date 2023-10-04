@@ -4428,7 +4428,7 @@ void hfs_zfree(void *ptr, hfs_zone_kind_t zone)
 {
 	atomic_add_long(&hfs_allocated, -(int64_t)hfs_zones[zone].hz_elem_size);
 	
-	zfree(hfs_zones[zone].hz_zone, ptr);
+	uma_zfree(hfs_zones[zone].hz_zone, ptr);
 }
 
 struct hfs_sysctl_chain *sysctl_list;
