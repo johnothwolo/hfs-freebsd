@@ -542,8 +542,9 @@ hfs_mount(struct mount *mp)
          * XXXRW: VOP_ACCESS() enough?
          */
         accmode = VREAD;
-        if ((mp->mnt_flag & MNT_RDONLY) == 0)
-            accmode |= VWRITE;
+        // FIXME: write support
+//        if ((mp->mnt_flag & MNT_RDONLY) == 0)
+//            accmode |= VWRITE;
         retval = VOP_ACCESS(devvp, accmode, td->td_ucred, td);
         if (retval)
             retval = priv_check(td, PRIV_VFS_MOUNT_PERM);
@@ -552,8 +553,7 @@ hfs_mount(struct mount *mp)
             trace_return (retval);
         }
         
-		/* Set the mount flag to indicate that we support volfs  */
-//		SET(mp->mnt_flag, (u_int64_t)((unsigned int)MNT_DOVOLFS));
+		SET(mp->mnt_flag, (u_int64_t)((unsigned int)MNT_RDONLY));
 
 		retval = hfs_mountfs(devvp, mp, NULL, 0, td);
 		if (retval) { 
@@ -569,7 +569,7 @@ hfs_mount(struct mount *mp)
 		/* Set up the maximum defrag file size */
 		hfsmp->hfs_defrag_max = HFS_INITIAL_DEFRAG_SIZE;
 
-
+        // FIXME: permissions
 //		if (!data) {
 			// Root mount
 
@@ -4669,6 +4669,7 @@ hfs_cmount(struct mntarg *ma, void *data, uint64_t flags)
     ma = mount_argf(ma, "gid", "%d", args.hfs_gid);
     ma = mount_argf(ma, "mask", "%d", args.hfs_mask);
 
+    // FIXME: Copy pasta, but needed for `mount_hfs`
 //    ma = mount_argb(ma, args.flags & MSDOSFSMNT_SHORTNAME, "noshortname");
 //    ma = mount_argb(ma, args.flags & MSDOSFSMNT_LONGNAME, "nolongname");
 //    ma = mount_argb(ma, !(args.flags & MSDOSFSMNT_NOWIN95), "nowin95");

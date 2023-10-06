@@ -657,7 +657,7 @@ extern void _hfs_systemfile_unlock(struct hfsmount *, int, const char *func, con
 extern void record_unneeded_lock(int lkstat, const char *func, const char *file, int line);
 
 // call from a VOP.
-// This will help preserve any ambiguous lock statuses from VOPs
+// This will help preserve any ambiguous lock statuses from VOP callers
 #define \
 hfs_ambiguous_lock(lkstat, cp, flags) ({                                        \
     int __lkstat__ = lkstat;                                                    \
