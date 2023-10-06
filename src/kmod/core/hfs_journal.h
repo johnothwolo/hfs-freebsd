@@ -142,6 +142,7 @@ typedef struct journal {
 
 
     struct vnode       *jdev;              // vnode of the device where the journal lives
+    struct g_consumer  *jcp;               // consumer of jdev
     off_t               jdev_offset;       // byte offset to the start of the journal
     const char         *jdev_name;
 
@@ -246,6 +247,7 @@ void      journal_uninit(void);
  * be created.
  */
 journal *journal_create(struct vnode *jvp,
+                        struct g_consumer *jcp,
 						off_t         offset,
 						off_t         journal_size,
 						struct vnode *fsvp,
@@ -267,6 +269,7 @@ journal *journal_create(struct vnode *jvp,
  * trouble reading/playing back the journal.
  */
 journal  *journal_open(struct vnode *jvp,
+                       struct g_consumer *jcp,
 					   off_t         offset,
 					   off_t         journal_size,
 					   struct vnode *fsvp,
@@ -284,6 +287,7 @@ journal  *journal_open(struct vnode *jvp,
  * volume as your data structures may be in an unknown state.
  */
 int journal_is_clean(struct vnode *jvp,
+            struct g_consumer *jcp,
 		     off_t         offset,
 		     off_t         journal_size,
 		     struct vnode *fsvp,

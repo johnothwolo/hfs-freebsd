@@ -406,6 +406,7 @@ hfs_mount(struct mount *mp)
 				 * for metadata writes.
 				 */
 				hfsmp->jnl = journal_open(hfsmp->jvp,
+                                          hfsmp->jcp,
 						hfs_blk_to_bytes(hfsmp->jnl_start, HFSTOVCB(hfsmp)->blockSize) + (off_t)HFSTOVCB(hfsmp)->hfsPlusIOPosOffset,
 						hfsmp->jnl_size,
 						hfsmp->hfs_devvp,
@@ -1237,15 +1238,21 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 //    }
 
 	g_topology_lock();
-	if ((retval = g_vfs_open(devvp, &cp, "hfs", ronly ? 0 : 1)) != 0){
-		VOP_UNLOCK(devvp);
+    retval = g_vfs_open(devvp, &cp, "hfs", ronly ? 0 : 1);
+    g_topology_unlock();
+    VOP_UNLOCK(devvp);
+    
+	if (retval != 0){
+        if (cp) {
+            g_topology_lock();
+            g_vfs_close(cp);
+            g_topology_unlock();
+        }
 		return retval;
 	}
-	g_topology_unlock();
 	bo = &devvp->v_bufobj;
 	bo->bo_private = cp;
 	bo->bo_ops = g_vfs_bufops;
-	VOP_UNLOCK(devvp);
 
 	/* Get the logical block size (treated as physical block size everywhere) */
 	if (VNOP_IOCTL(devvp, cp, DKIOCGETBLOCKSIZE, (caddr_t)&log_blksize, 0)) {

@@ -499,7 +499,7 @@ write_journal_header(journal *jnl, int updating_start, uint32_t sequence_num)
 			jnl->flush_counter++;
 		}
 
-		ret = VNOP_IOCTL(jnl->jdev, HFSTOCP(VTOHFS(jnl->jdev)), DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
+		ret = VNOP_IOCTL(jnl->jdev, jnl->jcp, DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
 	}
 	if (ret != 0) {
 		//
@@ -555,7 +555,7 @@ write_journal_header(journal *jnl, int updating_start, uint32_t sequence_num)
 			jnl->flush_counter++;
 		}
 
-		VNOP_IOCTL(jnl->jdev, HFSTOCP(hfsmp), DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
+		VNOP_IOCTL(jnl->jdev, jnl->jcp, DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
 	}
 
 	return 0;
@@ -1610,7 +1610,7 @@ size_up_tbuffer(journal *jnl, int tbuffer_size, int phys_blksz)
 }
 
 static void
-get_io_info(struct vnode *devvp, size_t phys_blksz, journal *jnl, struct thread *td)
+get_io_info(struct vnode *devvp, struct g_consumer *cp, size_t phys_blksz, journal *jnl, struct thread *td)
 {
 	off_t	readblockcnt;
 	off_t	writeblockcnt;
@@ -1618,10 +1618,8 @@ get_io_info(struct vnode *devvp, size_t phys_blksz, journal *jnl, struct thread 
 	off_t	writemaxcnt=0, tmp_writemaxcnt;
 	off_t	readsegcnt, writesegcnt;
 	int32_t	features;
-    struct hfsmount *hfsmp = VFSTOHFS(devvp->v_mountedhere);
     
-    
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETFEATURES, (caddr_t)&features, 0) == 0) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETFEATURES, (caddr_t)&features, 0) == 0) {
 		if (features & DK_FEATURE_FORCE_UNIT_ACCESS) {
 			jnl->flags |= JOURNAL_DO_FUA_WRITES;
 			printf("jnl: %s: enabling FUA writes (features 0x%x)\n", devtoname(devvp->v_rdev), features);
@@ -1638,16 +1636,16 @@ get_io_info(struct vnode *devvp, size_t phys_blksz, journal *jnl, struct thread 
 	//
 	// First check the max read size via several different mechanisms...
 	//
-	VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETMAXBYTECOUNTREAD, (caddr_t)&readmaxcnt, 0);
+	VNOP_IOCTL(devvp, cp, DKIOCGETMAXBYTECOUNTREAD, (caddr_t)&readmaxcnt, 0);
 
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETMAXBLOCKCOUNTREAD, (caddr_t)&readblockcnt, 0) == 0) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETMAXBLOCKCOUNTREAD, (caddr_t)&readblockcnt, 0) == 0) {
 		tmp_readmaxcnt = readblockcnt * phys_blksz;
 		if (readmaxcnt == 0 || (readblockcnt > 0 && tmp_readmaxcnt < readmaxcnt)) {
 			readmaxcnt = tmp_readmaxcnt;
 		}
 	}
 
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETMAXSEGMENTCOUNTREAD, (caddr_t)&readsegcnt, 0)) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETMAXSEGMENTCOUNTREAD, (caddr_t)&readsegcnt, 0)) {
 		readsegcnt = 0;
 	}
 
@@ -1665,16 +1663,16 @@ get_io_info(struct vnode *devvp, size_t phys_blksz, journal *jnl, struct thread 
 	//
 	// Now check the max writes size via several different mechanisms...
 	//
-	VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETMAXBYTECOUNTWRITE, (caddr_t)&writemaxcnt, 0);
+	VNOP_IOCTL(devvp, cp, DKIOCGETMAXBYTECOUNTWRITE, (caddr_t)&writemaxcnt, 0);
 
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETMAXBLOCKCOUNTWRITE, (caddr_t)&writeblockcnt, 0) == 0) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETMAXBLOCKCOUNTWRITE, (caddr_t)&writeblockcnt, 0) == 0) {
 		tmp_writemaxcnt = writeblockcnt * phys_blksz;
 		if (writemaxcnt == 0 || (writeblockcnt > 0 && tmp_writemaxcnt < writemaxcnt)) {
 			writemaxcnt = tmp_writemaxcnt;
 		}
 	}
 
-	if (VNOP_IOCTL(devvp, HFSTOCP(hfsmp), DKIOCGETMAXSEGMENTCOUNTWRITE,	(caddr_t)&writesegcnt, 0)) {
+	if (VNOP_IOCTL(devvp, cp, DKIOCGETMAXSEGMENTCOUNTWRITE,	(caddr_t)&writesegcnt, 0)) {
 		writesegcnt = 0;
 	}
 
@@ -1698,6 +1696,7 @@ get_io_info(struct vnode *devvp, size_t phys_blksz, journal *jnl, struct thread 
 
 journal *
 journal_create(struct vnode *jvp,
+               struct g_consumer *jcp,
 			   off_t         offset,
 			   off_t         journal_size,
 			   struct vnode *fsvp,
@@ -1722,7 +1721,7 @@ journal_create(struct vnode *jvp,
 	jdev_name = devtoname(jvp->v_rdev);
 
 	/* Get the real physical block size. */
-	if (VNOP_IOCTL(jvp, HFSTOCP(VFSTOHFS(fsmount)), DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
+	if (VNOP_IOCTL(jvp, jcp, DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
 		goto jnl_fail;
 	}
 
@@ -1755,6 +1754,7 @@ journal_create(struct vnode *jvp,
 	jnl = hfs_mallocz(sizeof(struct journal));
 
 	jnl->jdev         = jvp;
+    jnl->jcp          = jcp;
 	jnl->jdev_offset  = offset;
 	jnl->fsdev        = fsvp;
 	jnl->flush        = flush;
@@ -1766,7 +1766,7 @@ journal_create(struct vnode *jvp,
 	// Keep a point to the mount around for use in IO throttling.
 	jnl->fsmount      = fsmount;
 
-	get_io_info(jvp, phys_blksz, jnl, curthread);
+	get_io_info(jvp, jcp, phys_blksz, jnl, curthread);
 
 	jnl->header_buf = hfs_malloc(phys_blksz);
 	jnl->header_buf_size = phys_blksz;
@@ -1869,6 +1869,7 @@ journal_create_complete:
 
 journal *
 journal_open(struct vnode *jvp,
+             struct g_consumer *jcp,
 			 off_t         offset,
 			 off_t         journal_size,
 			 struct vnode *fsvp,
@@ -1888,7 +1889,7 @@ journal_open(struct vnode *jvp,
     struct hfsmount *hfsmp = VFSTOHFS(fsmount);
 
 	/* Get the real physical block size. */
-	if (VNOP_IOCTL(jvp, HFSTOCP(hfsmp), DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
+	if (VNOP_IOCTL(jvp, jcp, DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
 		goto jnl_fail;
 	}
 
@@ -1920,6 +1921,7 @@ journal_open(struct vnode *jvp,
 	jnl = hfs_mallocz(sizeof(struct journal));
 
 	jnl->jdev         = jvp;
+    jnl->jcp          = jcp;
 	jnl->jdev_offset  = offset;
 	jnl->fsdev        = fsvp;
 	jnl->flush        = flush;
@@ -1933,7 +1935,7 @@ journal_open(struct vnode *jvp,
 	 */
 	jnl->fsmount      = fsmount;
 
-	get_io_info(jvp, phys_blksz, jnl, curthread);
+	get_io_info(jvp, jcp, phys_blksz, jnl, curthread);
 
 	jnl->header_buf = hfs_malloc(phys_blksz);
 	jnl->header_buf_size = phys_blksz;
@@ -2007,7 +2009,7 @@ journal_open(struct vnode *jvp,
 		 */
 		orig_blksz = phys_blksz;
 		phys_blksz = jnl->jhdr->jhdr_size;
-		VNOP_IOCTL(jvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&phys_blksz, 0);
+		VNOP_IOCTL(jvp, jcp, DKIOCSETBLOCKSIZE, (caddr_t)&phys_blksz, 0);
 		printf("jnl: %s: open: temporarily switched block size from %u to %u\n",
 			   jdev_name, orig_blksz, phys_blksz);
 	}
@@ -2082,7 +2084,7 @@ journal_open(struct vnode *jvp,
 	 */
 	
 	if (orig_blksz != 0) {
-		VNOP_IOCTL(jvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&orig_blksz, 0);
+		VNOP_IOCTL(jvp, jcp, DKIOCSETBLOCKSIZE, (caddr_t)&orig_blksz, 0);
 		phys_blksz = orig_blksz;
 		
 		orig_blksz = 0;
@@ -2123,7 +2125,7 @@ journal_open(struct vnode *jvp,
 bad_journal:
 	if (orig_blksz != 0) {
 		phys_blksz = orig_blksz;
-		VNOP_IOCTL(jvp, HFSTOCP(hfsmp), DKIOCSETBLOCKSIZE, (caddr_t)&orig_blksz, 0);
+		VNOP_IOCTL(jvp, jcp, DKIOCSETBLOCKSIZE, (caddr_t)&orig_blksz, 0);
 		printf("jnl: %s: open: restored block size after error\n", jdev_name);
 	}
 	hfs_free(jnl->header_buf, jnl->header_buf_size);
@@ -2137,9 +2139,10 @@ journal_open_complete:
 
 int
 journal_is_clean(struct vnode *jvp,
-		 off_t         offset,
-		 off_t         journal_size,
-		 struct vnode *fsvp,
+                 struct g_consumer *jcp,
+                 off_t         offset,
+                 off_t         journal_size,
+                 struct vnode *fsvp,
                  size_t        min_fs_block_size)
 {
 	journal		jnl;
@@ -2147,10 +2150,9 @@ journal_is_clean(struct vnode *jvp,
 	int		ret;
 	int		orig_checksum, checksum;
 	const		char *jdev_name = devtoname(jvp->v_rdev);
-    struct hfsmount *hfsmp = VFSTOHFS(fsvp->v_mountedhere);
 
 	/* Get the real physical block size. */
-	if (VNOP_IOCTL(jvp, HFSTOCP(hfsmp), DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
+	if (VNOP_IOCTL(jvp, jcp, DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
 		printf("jnl: %s: is_clean: failed to get device block size.\n", jdev_name);
 		ret = EINVAL;
 		goto jnl_fail;
@@ -2181,7 +2183,7 @@ journal_is_clean(struct vnode *jvp,
 	jnl.header_buf = hfs_malloc(phys_blksz);
 	jnl.header_buf_size = phys_blksz;
 
-	get_io_info(jvp, phys_blksz, &jnl, curthread);
+	get_io_info(jvp, jcp, phys_blksz, &jnl, curthread);
     
 	jnl.jhdr = (journal_header *)jnl.header_buf;
 	memset(jnl.jhdr, 0, sizeof(journal_header));
@@ -2233,6 +2235,7 @@ journal_is_clean(struct vnode *jvp,
 	if (jnl.jhdr->start == jnl.jhdr->end) {
 		ret = 0;
 	} else {
+        // FIXME: EILSEQ makes more sense...
 		ret = EBUSY;    // so the caller can differentiate an invalid journal from a "busy" one
 	}
 
@@ -2689,7 +2692,7 @@ journal_modify_block_start(journal *jnl, struct buf *bp)
 	if ((bp->b_bufsize % jnl->jhdr->jhdr_size) != 0) {
 		uint32_t phys_blksz, bad=0;
 	    
-		if (VNOP_IOCTL(jnl->jdev, HFSTOCP(hfsmp), DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
+		if (VNOP_IOCTL(jnl->jdev, jnl->jcp, DKIOCGETBLOCKSIZE, (caddr_t)&phys_blksz, 0)) {
 			bad = 1;
 		} else if (phys_blksz != (uint32_t)jnl->jhdr->jhdr_size) {
 			if (phys_blksz < 512) {
@@ -3704,7 +3707,7 @@ journal_trim_flush(journal *jnl, transaction *tr)
 			unmap.extentsCount = tr->trim.extent_count;
 			if (jnl_kdebug)
 				KERNEL_DEBUG_CONSTANT(DBG_JOURNAL_TRIM_UNMAP | DBG_FUNC_START, obfuscate_addr(jnl), tr, 0, tr->trim.extent_count, 0);
-			err = VNOP_IOCTL(jnl->fsdev, HFSTOCP(hfsmp), DKIOCUNMAP, (caddr_t)&unmap, 0);
+			err = VNOP_IOCTL(jnl->fsdev, jnl->jcp, DKIOCUNMAP, (caddr_t)&unmap, 0);
 			if (jnl_kdebug)
 				KERNEL_DEBUG_CONSTANT(DBG_JOURNAL_TRIM_UNMAP | DBG_FUNC_END, err, 0, 0, 0, 0);
 		}
@@ -4747,11 +4750,11 @@ journal_flush(journal *jnl, journal_flush_options_t options)
 
 		// We need a full cache flush. If it has not been done, do it here.
 		if (flush_count == jnl->flush_counter)
-			error = VNOP_IOCTL(jnl->jdev, HFSTOCP(hfsmp), DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
+			error = VNOP_IOCTL(jnl->jdev, jnl->jcp, DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
 
 		// If external journal partition is enabled, flush filesystem data partition.
 		if (jnl->jdev != jnl->fsdev)
-			error = VNOP_IOCTL(jnl->fsdev, HFSTOCP(hfsmp), DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
+			error = VNOP_IOCTL(jnl->fsdev, jnl->jcp, DKIOCSYNCHRONIZE, (caddr_t)&sync_request, 0);
 
 	}
 

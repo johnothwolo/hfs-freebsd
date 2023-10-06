@@ -2558,6 +2558,8 @@ typedef struct jopen_cb_info {
 	off_t   jsize;
 	char   *desired_uuid;
 	struct  vnode *jvp;
+    struct  g_consumer *jcp;
+    struct  bufobj *jbo;
 	size_t  blksize;
 	int     need_clean;
 	int     need_init;
@@ -2637,6 +2639,7 @@ open_journal_dev(struct mount* mp,
     ji.jsize        = jsize;
     ji.desired_uuid = uuid_str;
     ji.jvp          = NULL;
+    ji.jcp          = NULL;
     ji.blksize      = blksize;
     ji.need_clean   = need_clean;
     ji.need_init    = 0;
@@ -2656,8 +2659,7 @@ open_journal_dev(struct mount* mp,
 		    delay_for_interval(10* 1000000, /*NSEC_PER_USEC*/ 1000ull);    // wait for ten seconds and then try again
 	    }
 
-	    hfs_iterate_media_with_content(EXTJNL_CONTENT_TYPE_UUID,
-									   journal_open_cb, &ji);
+	    hfs_iterate_media_with_content(EXTJNL_CONTENT_TYPE_UUID, journal_open_cb, &ji);
     }
 
     if (ji.jvp == NULL) {
@@ -2684,7 +2686,7 @@ void hfs_close_jvp(hfsmount_t *hfsmp, struct thread *td)
 //		.a_context	= vfs_context_kernel()
 //	};
     
-    vn_close(hfsmp->jvp, FREAD | FWRITE, td->td_ucred, td);
+    vn_close(hfsmp->jvp, FREAD | FWRITE, thread0.td_ucred, td);
 	hfsmp->jvp = NULL;
 }
 
@@ -2776,6 +2778,7 @@ hfs_early_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp,
 	    // if it is, then we can allow the mount.  otherwise we have to
 	    // return failure.
 	    retval = journal_is_clean(hfsmp->jvp,
+                      hfsmp->jcp,
 				      jib_offset + embeddedOffset,
 				      jib_size,
 				      devvp,
@@ -2798,6 +2801,7 @@ hfs_early_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp,
         printf("hfs: Initializing the journal (joffset 0x%lx sz 0x%lx)...\n",
 			   jib_offset + embeddedOffset, jib_size);
 		hfsmp->jnl = journal_create(hfsmp->jvp,
+                                    hfsmp->jcp,
 									jib_offset + embeddedOffset,
 									jib_size,
 									devvp,
@@ -2822,6 +2826,7 @@ hfs_early_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp,
 		//	   jib_size, SWAP_BE32(vhp->blockSize));
 				
 		hfsmp->jnl = journal_open(hfsmp->jvp,
+                                  hfsmp->jcp,
 								  jib_offset + embeddedOffset,
 								  jib_size,
 								  devvp,
@@ -2995,6 +3000,7 @@ hfs_late_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp, void *_a
 	
 	if (jib_flags & kJIJournalInFSMask) {
 		hfsmp->jvp = hfsmp->hfs_devvp;
+        hfsmp->jcp = hfsmp->hfs_cp;
 		jib_offset += (off_t)vcb->hfsPlusIOPosOffset;
 	} else {
 	    const char *dev_name;
@@ -3039,10 +3045,11 @@ hfs_late_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp, void *_a
 	    // if it is, then we can allow the mount.  otherwise we have to
 	    // return failure.
 	    retval = journal_is_clean(hfsmp->jvp,
+                      hfsmp->jcp,
 				      jib_offset,
 				      jib_size,
 				      devvp,
-		                      hfsmp->hfs_logical_block_size);
+                      hfsmp->hfs_logical_block_size);
 
 	    hfsmp->jnl = NULL;
 
@@ -3061,6 +3068,7 @@ hfs_late_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp, void *_a
         printf("hfs: Initializing the journal (joffset 0x%lx sz 0x%lx)...\n",
 			   jib_offset, jib_size);
 		hfsmp->jnl = journal_create(hfsmp->jvp,
+                                    hfsmp->jcp,
 									jib_offset,
 									jib_size,
 									devvp,
@@ -3093,6 +3101,7 @@ hfs_late_journal_init(struct hfsmount *hfsmp, HFSPlusVolumeHeader *vhp, void *_a
 		//	   jib_size, SWAP_BE32(vhp->blockSize));
 				
 		hfsmp->jnl = journal_open(hfsmp->jvp,
+                                  hfsmp->jcp,
 								  jib_offset,
 								  jib_size,
 								  devvp,
