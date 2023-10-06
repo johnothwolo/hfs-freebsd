@@ -58,10 +58,10 @@ vnode_getparent(struct vnode *vp)
     struct vnode *parentdp;
     struct componentname cn = (struct componentname){
         .cn_nameiop = LOOKUP,
-        .cn_flags    = WANTPARENT | ISDOTDOT,
+        .cn_flags    = LOCKPARENT | WANTPARENT | ISDOTDOT,
         .cn_pnbuf    = buf,
         .cn_nameptr  = buf,
-        .cn_namelen  = sizeof("..") -1,
+        .cn_namelen  = sizeof("..") - 1,
     };
     
     error = cache_lookup(vp, &parentdp, &cn, 0, 0);
