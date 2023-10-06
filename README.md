@@ -2,7 +2,7 @@
 
 This is a WIP port of Apple's HFS driver to FreeBSD. The code is based on version 556.60.1.
 
-To build the driver, clone the repository, navigate to the directory, then run make. Keep in note that:
+To build the driver, clone the repository, navigate to the directory, then run make. Keep in mind that:
 
 * This is a read-only driver. Write support is disabled for now.
 * `mount_hfs` is untested, so use the builtin `mount` command e.g. `mount -t hfs /dev/da0p3 /mnt/disk`.
