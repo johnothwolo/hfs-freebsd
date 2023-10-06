@@ -550,7 +550,7 @@ again:
 	if ((cp->c_truncatelockowner == HFS_SHARED_OWNER) &&
 	    ((fp->ff_unallocblocks != 0) ||
 	     (writelimit > origFileSize))) {
-		if (lck_rw_lock_shared_to_exclusive(&cp->c_truncatelock) == FALSE) {
+		if (lockmgr_lock_flags(&cp->c_truncatelock, LK_UPGRADE, NULL, __FILE_NAME__, __LINE__) != 0) {
 			/*
 			 * Lock upgrade failed and we lost our shared lock, try again.
 			 * Note: we do not set took_truncate_lock=0 here.  Leaving it
@@ -713,6 +713,7 @@ sizeok:
         cp->bmap_op = VWRITE;
         
         // FIXME: write support
+        kdb_enter(KDB_WHY_PANIC, "Write support is Unimplemented...\n");
 //		retval = cluster_write(vp, uio, fp->ff_size, filesize, head_off,
 //							   0, lflag | IO_NOZERODIRTY | io_return_on_throttle);
         
@@ -1226,7 +1227,7 @@ do_access_check(struct hfsmount *hfsmp, int *err, struct access_cache *cache, HF
             myErr = VOP_ACCESS(vp, VREAD, myp_ucred, my_td);
 	    }
 
-	    vput(vp);
+	    vrele(vp);
 	    if (myErr) {
 		myResult = 0;
 		goto ExitThisRoutine;
@@ -1474,7 +1475,7 @@ do_bulk_access_check(struct hfsmount *hfsmp, struct vnode *vp,
                     myErr = VOP_ACCESS(vp, VREAD , td->td_ucred, td);
                 }
                 
-                vput(cvp);
+                vrele(cvp);
                 if (myErr) {
                     access[i] = myErr;
                     continue;
@@ -5424,8 +5425,7 @@ out:
 		// vput() may need to re-acquire the cnode lock to
 		// reclaim the resource fork vnode)
 		//
-		hfs_unlock(VTOC(vp));
-		vput(rsrc_vp);
+		vput(rsrc_vp); // FIXME: ...
 		hfs_lock(VTOC(vp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_ALLOW_NOEXISTS);
 	}
 	return err;

@@ -623,7 +623,7 @@ CheckAccess(ExtendedVCB *theVCBPtr, u_long searchBits, CatalogKey *theKeyPtr, st
 			myErr = mac_vnode_check_stat(ctx, NOCRED, vp);
 		}
 		if (myErr) {
-			vput(vp);
+			vrele(vp);
 			vp = NULL;
 			goto ExitThisRoutine;
 		}
@@ -634,7 +634,7 @@ CheckAccess(ExtendedVCB *theVCBPtr, u_long searchBits, CatalogKey *theKeyPtr, st
 		} else {
 		    myErr = vnode_authorize(vp, NULL, (KAUTH_VNODE_SEARCH), ctx);
 		}
-		vput(vp);
+		vrele(vp);
 		vp = NULL;
 		if ( myErr ) {
 			goto ExitThisRoutine;	/* no access */

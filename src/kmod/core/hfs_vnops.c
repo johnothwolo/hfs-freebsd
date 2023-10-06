@@ -287,10 +287,10 @@ hfs_ref_data_vp(struct cnode *cp, struct vnode **data_vp, int skiplock)
 		return EINVAL;
 	}
 	
-	if (0 == hfs_vget(VTOHFS(cp->c_rsrc_vp), cp->c_cnid, data_vp, 1, 0) &&
+	if (0 == hfs_vget(VTOHFS(cp->c_rsrc_vp), cp->c_cnid, data_vp, 0, 0) &&
 		0 != data_vp) {
 		vref = vref(*data_vp);
-		vput(*data_vp);
+		vput(*data_vp); // FIXME: ref counting (why ref then put?)
 		if (!skiplock) hfs_unlock(cp);
 		if (vref == 0) {
 			return 0;
@@ -2808,7 +2808,7 @@ static void hfs_rsrc_setsize(cnode_t *cp)
 	if (cp->c_rsrc_vp && !vget(cp->c_rsrc_vp, 0)) {
 		// Shouldn't happen, but better safe...
 		if (ISSET(cp->c_flag, C_NEED_RVNODE_PUT))
-			vput(cp->c_rsrc_vp);
+			vrele(cp->c_rsrc_vp);
 		SET(cp->c_flag, C_NEED_RVNODE_PUT | C_NEED_RSRC_SETSIZE);
 	}
 }
@@ -3843,6 +3843,7 @@ rm_done:
 	hfs_unlockpair(dcp, cp);
 	hfs_unlock_truncate(cp, HFS_LOCK_DEFAULT);
 
+    // FIXME: locking and ref. counting
 	if (recycle_rsrc) {
 		/* inactive or reclaim on rvp will clean up the blocks from the rsrc fork */
 		vrecycle(rvp);
@@ -3853,7 +3854,7 @@ rm_done:
 
 	if (rvp) {
 		/* drop iocount on rsrc fork, was obtained at beginning of fxn */
-		vput(rvp);
+		vrele(rvp);
 	}
 
 	return (error);
@@ -6650,7 +6651,7 @@ out:
 	}
 	if (error) {
 		if (vp) {
-			vput(vp);
+			vrele(vp);
 		}
 		*vpp = NULL;
 	}
@@ -7157,8 +7158,7 @@ hfs_vnop_readlink(struct vop_readlink_args *ap)
 	}
 
 exit:
-	hfs_unlock(cp);
-	return (error);
+	trace_return (error);
 }
 
 
@@ -7498,17 +7498,14 @@ hfs_makenode(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp,
 	}
 	int protected_mount = 0;	
 #endif
-
-
-	if ((error = hfs_lock(VTOC(dvp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT)))
-		return (error);
+    
+    HFS_ASSERT_XLOCKED(dvp);
 
 	/* set the cnode pointer only after successfully acquiring lock */
 	dcp = VTOC(dvp);
 
 	/* Don't allow creation of new entries in open-unlinked directories */
 	if ((error = hfs_checkdeleted(dcp))) {
-		hfs_unlock(dcp);
 		return error;
 	}
 
@@ -7984,8 +7981,6 @@ exit:
 	if (dcp) {
 		dcp->c_flag &= ~C_DIR_MODIFICATION;
 		wakeup((caddr_t)&dcp->c_flag);
-		
-		hfs_unlock(dcp);
 	}
 	ino_t file_id = 0;
 	if (error == 0 && cp != NULL) {
@@ -8010,7 +8005,6 @@ exit:
 		ocp->c_bsdflags &= ~UF_TRACKED;
 		ocp->c_flag |= C_MODIFIED;
 
-		hfs_unlock(ocp);
 		vput(old_doc_vp);
 
 		add_fsevent(FSE_DOCID_CHANGED, curthread,

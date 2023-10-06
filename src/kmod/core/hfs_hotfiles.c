@@ -607,8 +607,7 @@ reset_file_ids(struct hfsmount *hfsmp, uint32_t *fileid_table, int num_ids)
 
 		hfs_end_transaction(hfsmp);
 		
-		hfs_unlock(VTOC(vp));
-		vput(vp);
+		vput(vp); // unlocks cnode/vnode
 	}
 }
 
@@ -1247,13 +1246,11 @@ hfs_getvnode_and_pin (struct hfsmount *hfsmp, uint32_t fileid, uint32_t *pinned)
      * here.  We do not want to move them.
      */
     if (!(vp->v_type & VREG)) {
-        hfs_unlock(VTOC(vp));
         vput(vp);
         return EPERM;
     }
 
     if (!(VTOC(vp)->c_attr.ca_recflags & kHFSFastDevPinnedMask)) {
-        hfs_unlock(VTOC(vp));
         vput(vp);
         return EINVAL;
     }
@@ -1263,7 +1260,6 @@ hfs_getvnode_and_pin (struct hfsmount *hfsmp, uint32_t fileid, uint32_t *pinned)
         *pinned = pblocks;
     }
 
-    hfs_unlock(VTOC(vp));
     vput(vp);
 
     return error;
@@ -2449,7 +2445,6 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 		if (!(vp->v_type & VREG)) {
 			/* Symlinks are ineligible for adoption into the hotfile zone.  */
 			//printf("hfs: hotfiles_adopt: huh, not a file %d (%d)\n", listp->hfl_hotfile[i].hf_fileid, VTOC(vp)->c_cnid);
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			listp->hfl_hotfile[i].hf_temperature = 0;
 			listp->hfl_next++;
@@ -2458,7 +2453,6 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 		if (   (VTOC(vp)->c_flag & (C_DELETED | C_NOEXISTS))
 		    || (!(hfsmp->hfs_flags & HFS_CS_HOTFILE_PIN) && hotextents(hfsmp, &VTOF(vp)->ff_extents[0]))
 		    || (VTOC(vp)->c_attr.ca_recflags & (kHFSFastDevPinnedMask|kHFSDoNotFastDevPinMask))) {
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			listp->hfl_hotfile[i].hf_temperature = 0;
 			listp->hfl_next++;
@@ -2480,7 +2474,6 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 
 			vnode_clearfastdevicecandidate(vp);    // turn off the fast-dev-candidate flag so we don't keep trying to cache it.
 
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			listp->hfl_hotfile[i].hf_temperature = 0;
 			listp->hfl_next++;
@@ -2503,7 +2496,6 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 
 			vnode_clearfastdevicecandidate(vp);    // turn off the fast-dev-candidate flag so we don't keep trying to cache it.
 
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			listp->hfl_hotfile[i].hf_temperature = 0;
 			listp->hfl_next++;
@@ -2517,7 +2509,6 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 			// it's best that we check here as well since writes to existing
 			// hotfiles may have eaten up space since we performed eviction
 			//
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			listp->hfl_next++;
 			listp->hfl_totalblocks -= fileblocks;
@@ -2530,7 +2521,6 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 			// we've done enough work, let's be nice to the system and
 			// stop until the next iteration
 			//
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			break;  /* adopt this entry the next time around */
 		}
@@ -2576,16 +2566,14 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 				temp_adjust = 0;
 			}
 
-			hfs_unlock(VTOC(vp));  // don't need an exclusive lock for this
-			hfs_lock(VTOC(vp), HFS_SHARED_LOCK, HFS_LOCK_ALLOW_NOEXISTS);
+            hfs_lock_downgrade(VTOC(vp)); // don't need an exclusive lock for this
 
 			error = hfs_pin_vnode(hfsmp, vp, HFS_PIN_IT, &pinned_blocks);
 
 			fileblocks = pinned_blocks;
 
 			// go back to an exclusive lock since we're going to modify the cnode again
-			hfs_unlock(VTOC(vp));
-			hfs_lock(VTOC(vp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_ALLOW_NOEXISTS);
+			hfs_lock_upgrade(VTOC(vp));
 		} else {
 			//
 			// Old style hotfiles moves the data to the center (aka "hot")
@@ -2610,7 +2598,6 @@ hotfiles_adopt(struct hfsmount *hfsmp)
 			VTOC(vp)->c_flag |= C_MODIFIED;
 		}
 
-		hfs_unlock(VTOC(vp));
 		vput(vp);
 		if (error) {
 #if HFC_VERBOSE
@@ -2856,7 +2843,6 @@ hotfiles_evict(struct hfsmount *hfsmp, struct thread * td)
 		 */
 		if (!(vp->v_type & VREG)) {
 			//printf("hfs: hotfiles_evict: huh, not a file %d\n", key->fileID);
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			goto delete;  /* invalid entry, go to next */
 		}
@@ -2864,7 +2850,6 @@ hotfiles_evict(struct hfsmount *hfsmp, struct thread * td)
 		fileblocks = VTOF(vp)->ff_blocks;
 		if ((blksmoved > 0) &&
 		    (blksmoved + fileblocks) > HFC_BLKSPERSYNC) {
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			break;
 		}
@@ -2875,7 +2860,6 @@ hotfiles_evict(struct hfsmount *hfsmp, struct thread * td)
 #if HFC_VERBOSE
 			printf("hfs: hotfiles_evict: file %d isn't hot!\n", key->fileID);
 #endif
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			goto delete;  /* stale entry, go to next */
 		}
@@ -2888,16 +2872,14 @@ hotfiles_evict(struct hfsmount *hfsmp, struct thread * td)
 		if (hfsmp->hfs_flags & HFS_CS_HOTFILE_PIN) {
 			uint32_t pinned_blocks;
 			
-			hfs_unlock(VTOC(vp));  // don't need an exclusive lock for this
-			hfs_lock(VTOC(vp), HFS_SHARED_LOCK, HFS_LOCK_ALLOW_NOEXISTS);
+			hfs_lock_downgrade(VTOC(vp));  // don't need an exclusive lock for this
 
 			error = hfs_pin_vnode(hfsmp, vp, HFS_UNPIN_IT, &pinned_blocks);
 			fileblocks = pinned_blocks;
 
 			if (!error) {
 				// go back to an exclusive lock since we're going to modify the cnode again
-				hfs_unlock(VTOC(vp));
-				hfs_lock(VTOC(vp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_ALLOW_NOEXISTS);
+				hfs_lock_upgrade(VTOC(vp));
 			}
 		} else {
 			error = hfs_relocate(vp, HFSTOVCB(hfsmp)->nextAllocation, td->td_ucred, td);
@@ -2906,7 +2888,6 @@ hotfiles_evict(struct hfsmount *hfsmp, struct thread * td)
 #if HFC_VERBOSE
 			printf("hfs: hotfiles_evict: err %d relocating file %d\n", error, key->fileID);
 #endif
-			hfs_unlock(VTOC(vp));
 			vput(vp);
 			bt_op = kBTreeNextRecord;
 			goto next;  /* go to next */
@@ -2922,7 +2903,6 @@ hotfiles_evict(struct hfsmount *hfsmp, struct thread * td)
 		//
 		// (void) hfs_fsync(vp, MNT_WAIT, 0, p);
 
-		hfs_unlock(VTOC(vp));
 		vput(vp);
 
 		hfsmp->hfs_hotfile_freeblks += fileblocks;

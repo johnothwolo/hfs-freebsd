@@ -103,7 +103,7 @@ hfs_extendfs(struct hfsmount *hfsmp, u_int64_t newsize, struct thread *td)
 	 * ownership and check permissions.
 	 */
 	if (priv_check_cred(cred, PRIV_VFS_ADMIN)) {
-		error = hfs_vget(hfsmp, kHFSRootFolderID, &vp, 0, 0);
+		error = hfs_vget(hfsmp, kHFSRootFolderID, &vp, LK_EXCLUSIVE, 0);
         
 		if (error)
 			return (error);
@@ -111,7 +111,6 @@ hfs_extendfs(struct hfsmount *hfsmp, u_int64_t newsize, struct thread *td)
 		if (error == 0) {
 			error = hfs_write_access(vp, cred, td, false);
 		}
-		hfs_unlock(VTOC(vp));
 		vput(vp);
 		if (error)
 			return (error);
@@ -445,7 +444,7 @@ hfs_extendfs(struct hfsmount *hfsmp, u_int64_t newsize, struct thread *td)
 		struct cnode *attr_cp;
 		struct filefork *attr_fp;
 		
-		if (vget(hfsmp->hfs_attrdata_vp, 0) == 0) {
+		if (vget(hfsmp->hfs_attrdata_vp, LK_EXCLUSIVE) == 0) {
 			attr_cp = VTOC(hfsmp->hfs_attrdata_vp);
 			attr_fp = VTOF(hfsmp->hfs_attrdata_vp);
 			
@@ -814,7 +813,7 @@ hfs_truncatefs(struct hfsmount *hfsmp, u_int64_t newsize, struct thread *td)
 		struct cnode *cp;
 		struct filefork *fp;
 		
-		if (vget(hfsmp->hfs_attrdata_vp, 0) == 0) {
+		if (vget(hfsmp->hfs_attrdata_vp, LK_EXCLUSIVE) == 0) {
 			cp = VTOC(hfsmp->hfs_attrdata_vp);
 			fp = VTOF(hfsmp->hfs_attrdata_vp);
 			
@@ -2959,12 +2958,11 @@ hfs_reclaim_xattrspace(struct hfsmount *hfsmp, u_int32_t allocLimit, struct thre
 		 * We want to allow open-unlinked files to be moved,
 		 * so provide allow_deleted == 1 for hfs_vget().
 		 */
-		if (hfs_vget(hfsmp, key->fileID, &vp, 0, 1) != 0) {
+		if (hfs_vget(hfsmp, key->fileID, &vp, LK_EXCLUSIVE, 1) != 0) {
 			continue;
 		}
         
 		error = hfs_reclaim_xattr(hfsmp, vp, key->fileID, allocLimit, td);
-		hfs_unlock(VTOC(vp));
 		vput(vp);
 		if (error) {
 			printf ("hfs_reclaim_xattrspace: Error relocating xattrs for fileid=%u (error=%d)\n", key->fileID, error);
@@ -3074,7 +3072,7 @@ hfs_reclaim_filespace(struct hfsmount *hfsmp, u_int32_t allocLimit, struct threa
 			continue;
 
 		/* We want to allow open-unlinked files to be moved, so allow_deleted == 1 */
-		if (hfs_vget(hfsmp, filerec.fileID, &vp, 0, 1) != 0) {
+		if (hfs_vget(hfsmp, filerec.fileID, &vp, LK_EXCLUSIVE, 1) != 0) {
 			if (hfs_resize_debug) {
 				printf("hfs_reclaim_filespace: hfs_vget(%u) failed.\n", filerec.fileID);
 			}
@@ -3088,7 +3086,6 @@ hfs_reclaim_filespace(struct hfsmount *hfsmp, u_int32_t allocLimit, struct threa
                                      kHFSDataForkType, allocLimit, td);
 			if (error)  {
 				printf ("hfs_reclaimspace: Error reclaiming datafork blocks of fileid=%u (error=%d)\n", filerec.fileID, error);
-				hfs_unlock(VTOC(vp));
 				vput(vp);
 				break;
 			}
@@ -3105,7 +3102,6 @@ hfs_reclaim_filespace(struct hfsmount *hfsmp, u_int32_t allocLimit, struct threa
 				error = hfs_vgetrsrc(hfsmp, vp, &rvp);
 				if (error) {
 					printf ("hfs_reclaimspace: Error looking up rvp for fileid=%u (error=%d)\n", filerec.fileID, error);
-					hfs_unlock(VTOC(vp));
 					vput(vp);
 					break;
 				}
@@ -3116,7 +3112,6 @@ hfs_reclaim_filespace(struct hfsmount *hfsmp, u_int32_t allocLimit, struct threa
                                      kHFSResourceForkType, allocLimit, td);
 			if (error) {
 				printf ("hfs_reclaimspace: Error reclaiming rsrcfork blocks of fileid=%u (error=%d)\n", filerec.fileID, error);
-				hfs_unlock(VTOC(vp));
 				vput(vp);
 				break;
 			}
@@ -3126,7 +3121,6 @@ hfs_reclaim_filespace(struct hfsmount *hfsmp, u_int32_t allocLimit, struct threa
 		 * cnode lock and vnode reference, and continue iterating to
 		 * next catalog record.
 		 */
-		hfs_unlock(VTOC(vp));
 		vput(vp);
 		files_moved++;
 	}

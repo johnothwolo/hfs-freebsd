@@ -543,7 +543,7 @@ hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
 				 */
 				hfs_unlock (cp);
 
-				vput(vp);
+				vrele(vp);
 				goto lookup;
 			}
 
@@ -617,7 +617,7 @@ hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
 			 * traditional path.  Drop the iocount acquired through 
 			 * cache_lookup above and force a cat lookup / getnewvnode
 			 */
-			vput(vp);
+			vrele(vp);
 			goto lookup;
 		}
 		
@@ -626,7 +626,7 @@ hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
 			 * If the cat_lookup failed then the caller will not expect 
 			 * a vnode with an iocount on it.
 			 */
-			vput(vp);
+			vrele(vp);
 		}
 
 	}	

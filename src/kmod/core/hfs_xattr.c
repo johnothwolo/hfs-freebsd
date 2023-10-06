@@ -912,7 +912,7 @@ hfs_vnop_setxattr(struct vop_setextattr_args *ap)
 		} else {
 			/* cnode is not open-unlinked, so re-lock cnode to sync */
 			if ((result = hfs_lock(cp, HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT))) {
-				vput(rvp);
+				vrele(rvp);
 				return result;
 			}
 			
@@ -921,7 +921,7 @@ hfs_vnop_setxattr(struct vop_setextattr_args *ap)
 			hfs_unlock (cp);
 		}
 
-		vput(rvp);
+		vrele(rvp);
 		return (result);
 	}
 #if CONFIG_HFS_STD
@@ -1345,7 +1345,7 @@ hfs_vnop_removexattr(struct vop_deleteextattr_args *ap)
 
 		if ((result = hfs_lock(VTOC(rvp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT))) {
 			hfs_unlock_truncate(cp, HFS_LOCK_DEFAULT);
-			vput(rvp);
+			vrele(rvp);
 			return (result);
 		}
 
@@ -1355,7 +1355,7 @@ hfs_vnop_removexattr(struct vop_deleteextattr_args *ap)
 		if ((result = hfs_start_transaction(hfsmp))) {
 			hfs_unlock_truncate(cp, HFS_LOCK_DEFAULT);
 			hfs_unlock(cp);
-			vput(rvp);
+			vrele(rvp);
 			return (result);
 		}
 
@@ -1370,7 +1370,7 @@ hfs_vnop_removexattr(struct vop_deleteextattr_args *ap)
 		hfs_unlock_truncate(VTOC(rvp), HFS_LOCK_DEFAULT);
 		hfs_unlock(VTOC(rvp));
 
-		vput(rvp);
+		vrele(rvp);
 		return (result);
 	}
 	/* Clear out the Finder Info. */

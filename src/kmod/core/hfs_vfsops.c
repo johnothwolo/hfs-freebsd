@@ -334,7 +334,7 @@ hfs_mount(struct mount *mp)
 			if (retval == 0) {
 				vget(hfsmp->hfs_devvp, 0);
 				retval = VOP_FSYNC(hfsmp->hfs_devvp, MNT_WAIT, td);
-				vput(hfsmp->hfs_devvp);
+				vrele(hfsmp->hfs_devvp);
 			}
 
 			if (retval) {
@@ -2641,7 +2641,7 @@ hfs_sync(struct mount *mp, int waitfor)
 		if ((btvp==0) || ((btvp)->v_mount != mp))
 			continue;
 
-		/* XXX use hfs_systemfile_lock instead ? */
+		/* FIXME: use hfs_systemfile_lock instead ? Or maybe vget(LK_EXCLUSIVE)? */
 		(void) hfs_lock(VTOC(btvp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT);
 		cp = VTOC(btvp);
 
@@ -2658,7 +2658,7 @@ hfs_sync(struct mount *mp, int waitfor)
 			error = error;
 
 		hfs_unlock(cp);
-		vput(btvp);
+		vrele(btvp);
 	};
 
 
@@ -2742,7 +2742,6 @@ hfs_fhtovp(struct mount *mp, struct fid *fhp, int flags, struct vnode **vpp)
 
 	*vpp = nvp;
 
-	hfs_unlock(VTOC(nvp));
 	return (0);
 }
 
@@ -3366,7 +3365,7 @@ hfs_vfs_vget(struct mount *mp, ino_t ino, int flags, struct vnode **vpp)
 		hfs_unlock(cp);
 
 		if (error) {
-			vput(*vpp);
+			vrele(*vpp);
 			*vpp = NULL;
 		}
 	}
@@ -3611,7 +3610,7 @@ hfs_flushfiles(struct mount *mp, int flags, __unused struct thread *td)
 		}
 		hfs_unlock(VTOC(skipvp));
 		/* release the iocount from the hfs_chash_getvnode call above. */
-		vput(skipvp);
+		vrele(skipvp);
 	}
 	if (error && (flags & FORCECLOSE) == 0)
 		return (error);
@@ -4905,9 +4904,6 @@ hfs_cmount(struct mntarg *ma, void *data, uint64_t flags)
 struct vfsops hfs_vfsops = {
 	// .vfs_vptofh    = hfs_vptofh,
 	// .vfs_ioctl	  = hfs_vfs_ioctl,
-    
-    
-    
     .vfs_mount              = hfs_mount,
     .vfs_cmount             = hfs_cmount,
     .vfs_unmount            = hfs_unmount,

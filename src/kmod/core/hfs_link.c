@@ -1067,7 +1067,7 @@ exit:
 	}
 	if (dvp) {
 		hfs_unlock(dcp);
-		vput(dvp);
+		vrele(dvp);
 	}
 	if ((error == 0) && (type == DIR_HARDLINKS)) {
 		hfs_xattr_init(hfsmp);

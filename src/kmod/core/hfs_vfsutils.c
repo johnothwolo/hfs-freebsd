@@ -1286,8 +1286,8 @@ static void ReleaseMetaFileVNode(struct vnode *vp)
 		}
 
 		/* release the node even if BTClosePath fails */
+        vrele(vp);
 		vrecycle(vp);
-		vput(vp);
 	}
 }
 
@@ -3905,7 +3905,7 @@ hfs_generate_document_id(struct hfsmount *hfsmp, uint32_t *docid, struct thread 
 		
 	(void) hfs_unlock(cp);
 
-	vput(rvp);
+	vrele(rvp);
 	rvp = NULL;
 
 	return 0;
