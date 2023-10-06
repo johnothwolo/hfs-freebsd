@@ -64,7 +64,7 @@
 #include <uuid/uuid.h>
 #include <sys/buf.h>
 
-// compat stuff. Couldn't keep adding stuff at the bottome
+// compat stuff. Couldn't keep adding stuff at the bottom
 #include <sys/compat.h>
 
 #include "../hfs_encodings/hfs_encodings.h"
