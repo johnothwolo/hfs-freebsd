@@ -156,7 +156,7 @@ VNOP_IOCTL(struct vnode* devvp, struct g_consumer *cp, u_long command, void* dat
     error = 0;
     
     if (!cp) {
-        kdb_backtrace();
+        kdb_break();
         cleanup = true;
         g_topology_lock();
         error = g_vfs_open(devvp, &cp, "hfs", /* rw */1);
@@ -298,6 +298,9 @@ VNOP_IOCTL(struct vnode* devvp, struct g_consumer *cp, u_long command, void* dat
             *(uint64_t*)data = gkd.di.maxiosize / cp->provider->sectorsize;
             break;
         }
+        
+        case DKIOCGETMAXSEGMENTCOUNTREAD:
+        case DKIOCGETMAXSEGMENTCOUNTWRITE:
         case DKIOCGETMAXBYTECOUNTREAD:
         case DKIOCGETMAXBYTECOUNTWRITE: {
             struct g_kerneldump gkd;
