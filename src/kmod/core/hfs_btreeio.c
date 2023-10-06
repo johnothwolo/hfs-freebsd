@@ -930,11 +930,7 @@ exit:
 	if (result) {
 		hfs_free(btcb, sizeof(*btcb));
 		if (vp) {
-            vput(vp);
-            #warning Not this reference count mess again
-            // The vnode ref counting in freebsd and macOS is kinda different.
-            // xnu disallows the modification of a lot vnode properties, eliminating the need for
-            // fine grained freebsd-styled reference counting.
+            vrele(vp);
 		}
 		/* XXX need to give back blocks ? */
 	}
