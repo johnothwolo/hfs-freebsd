@@ -313,6 +313,7 @@ typedef struct hfsmount {
 	/* Journaling variables: */
 	struct journal      *jnl;           // the journal for this volume (if one exists)
 	struct vnode        *jvp;           // device where the journal lives (may be equal to devvp)
+    struct g_consumer   *jcp;           // consumer ptr of journal device
 	u_int32_t            jnl_start;     // start block of the journal file (so we don't delete it)
 	u_int32_t            jnl_size;
 	u_int32_t            hfs_jnlfileid;
