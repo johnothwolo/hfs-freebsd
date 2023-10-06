@@ -993,7 +993,7 @@ hfs_privatedir_init(struct hfsmount * hfsmp, enum privdirtype type)
 	}
 
 	/* Grab the root directory so we can update it later. */
-	if (hfs_vget(hfsmp, kRootDirID, &dvp, 0, 0) != 0) {
+	if (hfs_vget(hfsmp, kRootDirID, &dvp, LK_EXCLUSIVE, 0) != 0) {
 		goto exit;
 	}
 	dcp = VTOC(dvp);

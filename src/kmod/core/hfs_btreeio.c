@@ -667,7 +667,7 @@ again:
 	hfs_lock_mount (hfsmp);
 	if (hfsmp->hfs_flags & HFS_CREATING_BTREE) {
 			/* Someone else beat us, wait for them to finish. */
-        (void) msleep(&hfsmp->hfs_attribute_cp, &hfsmp->hfs_mutex.mtx,
+        (void) msleep(&hfsmp->hfs_attribute_cp, &hfsmp->hfs_mutex,
 			              PDROP | PINOD, "hfs_create_attr_btree", 0);
 			if (hfsmp->hfs_attribute_vp) {
 				return (0);
@@ -703,8 +703,7 @@ again:
 	bzero(&cfork, sizeof(cfork));
 	cfork.cf_clump = nodesize * nodecnt;
 
-	result = hfs_getnewvnode(hfsmp, NULL, NULL, &cndesc, 0, &cnattr, 
-							 &cfork, &vp, &newvnode_flags);
+	result = hfs_getnewvnode(hfsmp, NULL, NULL, &cndesc, gnv_dfl, &cnattr, &cfork, &vp, &newvnode_flags);
 	if (result) {
 		goto exit;
 	}

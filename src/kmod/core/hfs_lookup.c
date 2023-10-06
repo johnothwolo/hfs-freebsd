@@ -80,6 +80,7 @@
 #include <sys/ucred.h>
 #include <sys/namei.h>
 #include <sys/user.h>
+#include <sys/kdb.h>
 
 #include "hfs.h"
 #include "hfs_catalog.h"
@@ -189,16 +190,12 @@ hfs_lookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp, int
 		cnp->cn_flags &= ~MAKEENTRY;
 		goto found;	/* We always know who we are */
 	} else {
-		if (hfs_lock(VTOC(dvp), HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT) != 0) {
-			retval = ENOENT;  /* The parent no longer exists ? */
-			goto exit;
-		}
+
 		dcp = VTOC(dvp);
 
 		if (dcp->c_flag & C_DIR_MODIFICATION) {
 			// This needs to be changed to sleep on c_flag using assert_wait.
 		    // msleep((caddr_t)&dcp->c_flag, &dcp->c_rwlock, PINOD, "hfs_vnop_lookup", 0);
-		    hfs_unlock(dcp);
 		    tsleep((caddr_t)dvp, PRIBIO, "hfs_lookup", 1);
 
 		    goto retry;
@@ -232,7 +229,6 @@ hfs_lookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp, int
 			 * Note: We must drop the parent lock here before calling
 			 * hfs_getnewvnode (which takes the child lock).
 			 */
-			hfs_unlock(dcp);
 			dcp = NULL;
 			
 			/* Verify that the item just looked up isn't one of the hidden directories. */
@@ -301,6 +297,8 @@ found:
 		switch(nameiop) {
 		case DELETE:
 			cnp->cn_flags &= ~MAKEENTRY;
+            if (flags & LOCKPARENT)
+                ASSERT_VOP_ELOCKED(vdp, __FUNCTION__);
 			break;
 
 		case RENAME:
@@ -323,7 +321,7 @@ found:
 		 * find the appropriate parent for the current thread.
 		 */
 		if ((retval = hfs_vget(hfsmp, hfs_currentparent(VTOC(dvp),
-									/* have_lock: */ false), &tvp, 0, 0))) {
+                                /* have_lock: */ true), &tvp, cnp->cn_lkflags, 0))) {
 			goto exit;
 		}
 		*cnode_locked = 1;
@@ -343,7 +341,7 @@ found:
 		if (cnp->cn_namelen != desc.cd_namelen)
 			cnp->cn_flags &= ~MAKEENTRY;
 
-		retval = hfs_getnewvnode(hfsmp, dvp, cnp, &desc, 0, &attr, &fork, &tvp, &newvnode_flags);
+		retval = hfs_getnewvnode(hfsmp, dvp, cnp, &desc, gnv_dfl, &attr, &fork, &tvp, &newvnode_flags);
 
 		if (retval) {
 			/*
@@ -375,9 +373,6 @@ found:
 			 */
 			if ((retval == ENOENT) && (cnp->cn_nameiop == LOOKUP) &&
 				(newvnode_flags & (GNV_CHASH_RENAMED | GNV_CAT_DELETED))) {
-				if (dcp) {
-					hfs_unlock (dcp);
-				}
 				/* get rid of any name buffers that may have lingered from the cat_lookup call */
 				cat_releasedesc (&desc);
 				goto retry;
@@ -392,9 +387,6 @@ found:
 			 * it needs to occur regardless of the type of lookup we're doing here.  
 			 */
 			if ((retval == ERELOOKUP) && (newvnode_flags & GNV_CAT_ATTRCHANGED)) {
-				if (dcp) {
-					hfs_unlock (dcp);
-				}
 				/* get rid of any name buffers that may have lingered from the cat_lookup call */
 				cat_releasedesc (&desc);
 				retval = 0;
@@ -416,11 +408,8 @@ found:
 		*vpp = tvp;
 	}
 exit:
-	if (dcp) {
-		hfs_unlock(dcp);
-	}
 	cat_releasedesc(&desc);
-	return (retval);
+	trace_return (retval);
 }
 
 
@@ -444,7 +433,7 @@ exit:
  */
 
 int
-hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
+hfs_vnop_lookup(struct vop_lookup_args *ap)
 {
 	struct vnode *dvp = ap->a_dvp;
 	struct vnode *vp;
@@ -469,6 +458,7 @@ hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
 		auto_candidate = (vnode_isautocandidate(dvp) || (dcp->c_attr.ca_recflags & kHFSAutoCandidateMask));
 	}
 	
+    kdb_break();
 
 	/*
 	 * Lookup an entry in the cache
@@ -482,13 +472,13 @@ hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
 	 * If the lookup fails, a status of zero is returned.
 	 */
     
-//	error = cache_lookup(dvp, vpp, cnp, 0, 0);
-//	if (error != -1) {
-//		if ((error == ENOENT) && (cnp->cn_nameiop != CREATE))
-//			goto exit;	/* found a negative cache entry */
-//		goto lookup;		/* did not find it in the cache */
-//	}
-    goto lookup;
+	error = cache_lookup(dvp, vpp, cnp, 0, 0);
+	if (error != -1) {
+		if ((error == ENOENT) && (cnp->cn_nameiop != CREATE))
+			goto exit;	/* found a negative cache entry */
+		goto lookup;		/* did not find it in the cache */
+	}
+
 	/*
 	 * We have a name that matched
 	 * cache_lookup returns the vp with an iocount reference already taken
@@ -608,7 +598,7 @@ hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
 				}	
 			}
 		}
-		hfs_unlock (cp);
+        cnode_locked = 1;
 		
 		if (stale_link) {
 			/* 
@@ -628,7 +618,7 @@ hfs_vnop_lookup(struct vop_cachedlookup_args *ap)
 			 */
 			vrele(vp);
 		}
-
+        goto _Cnode_Locking;
 	}	
 	goto exit;
 	
@@ -650,9 +640,23 @@ lookup:
 		//printf("vp %s / %d is an auto-candidate\n", (*vpp)->v_name ? (*vpp)->v_name : "no-name", VTOC(*vpp)->c_fileid);
 		auto_candidate = 1;
 	}
-
-	if (cnode_locked)
-		hfs_unlock(VTOC(*vpp));
+_Cnode_Locking:
+    if (cnode_locked){
+        if ((flags & LOCKLEAF) == 0)
+            hfs_unlock(VTOC(*vpp));
+        else if ((flags & LOCKSHARED) != 0 && VOP_ISLOCKED(*vpp) == LK_EXCLUSIVE){
+            hfs_lock_downgrade(VTOC(*vpp));
+        }
+        
+        if ((flags & (LOCKPARENT | ISLASTCN)) == (LOCKPARENT | ISLASTCN) &&
+            (ap->a_cnp->cn_nameiop == CREATE ||
+             ap->a_cnp->cn_nameiop == DELETE ||
+             ap->a_cnp->cn_nameiop == RENAME))
+        {
+            if(VOP_ISLOCKED(dvp) != LK_EXCLUSIVE)
+                panic("hfs_vnop_lookup");
+        }
+    }
 exit:
 	if (*vpp && fastdev_candidate && !vnode_isfastdevicecandidate(*vpp)) {
 		vnode_setfastdevicecandidate(*vpp);
@@ -674,7 +678,7 @@ exit:
 //	if (__builtin_expect(throttle_lowpri_window(), 0))
 //		throttle_lowpri_io(1);
 
-	return (error);
+	trace_return (error);
 }
 
 

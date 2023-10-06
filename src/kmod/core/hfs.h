@@ -374,7 +374,7 @@ typedef struct hfsmount {
 #endif
 	size_t         hfs_max_inline_attrsize;
 
-	lck_mtx_t      hfs_mutex;      /* protects access to hfsmount data */
+	struct mtx     hfs_mutex;      /* protects access to hfsmount data */
 
 	uint32_t       hfs_syncers;	// Count of the number of syncers running
 	enum {
@@ -743,7 +743,7 @@ int hfs_is_backingstore (struct vnode *vp, int *val);		/* in hfs_cnode.c */
 
 int hfs_vnop_link(struct vop_link_args *);                /* in hfs_link.c */
 
-int hfs_vnop_lookup(struct vop_cachedlookup_args *);            /* in hfs_lookup.c */
+int hfs_vnop_lookup(struct vop_lookup_args *);            /* in hfs_lookup.c */
 
 //int hfs_vnop_search(struct vop_searchfs_args *);          /* in hfs_search.c */
 
@@ -1065,7 +1065,7 @@ bool hfs_dump_allocations(void);
 /*****************************************************************************
 	Functions from hfs_vnops.c
 ******************************************************************************/
-int hfs_write_access(struct vnode *vp, struct ucred* cred, struct thread *td, boolean_t considerFlags);
+int hfs_write_access(struct vnode *vp, struct ucred* cred, struct thread *td, accmode_t mode, boolean_t considerFlags);
 
 int hfs_chmod(struct vnode *vp, int mode, struct ucred* cred, struct proc *p);
 
@@ -1202,6 +1202,22 @@ __END_DECLS
 
 #undef assert
 #define assert         Do_not_use_assert__Use_hfs_assert_instead
+
+#define trace_return(v) ({                                                                      \
+    int __r__ = (v);                                                                            \
+    if(__r__ != 0) printf("%s:%d: returning %lu\n", __func__, __LINE__, (uint64_t)(__r__));     \
+    return __r__;                                                                               \
+})
+
+#define trace_enter() ({            \
+    printf("HFS: ENTER\n");         \
+})
+
+#define HFS_ASSERT_XLOCKED(vp) ({                                                                                    \
+    if (!(KERNEL_PANICKED() || (vp) == NULL || (vp)->v_type == VCHR || (vp)->v_type == VBAD)) {                     \
+        if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE)       panic("%s(): %p is not locked but should be", __func__, (vp));  \
+    }                                                                                                               \
+})
 
 #endif /* __APPLE_API_PRIVATE */
 #endif /* KERNEL */

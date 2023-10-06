@@ -148,11 +148,12 @@ hfs_delete_chash(struct hfsmount *hfsmp)
  * If it is in core, but locked, wait for it.
  */
 struct vnode *
-hfs_chash_getvnode(struct hfsmount *hfsmp, ino_t inum, int wantrsrc, int skiplock, int allow_deleted)
+hfs_chash_getvnode(struct hfsmount *hfsmp, ino_t inum, int wantrsrc, int lkflags, int allow_deleted)
 {
 	struct cnode *cp;
 	struct vnode *vp;
 	int error;
+    int skiplock = (lkflags & LK_TYPE_MASK) == 0;
 
 	/*
 	 * Go through the hash list
@@ -181,16 +182,12 @@ loop:
 
 		hfs_chash_unlock(hfsmp);
 
-        if ((error = vget(vp, skiplock ? 0 : LK_EXCLUSIVE))) {
+        if ((error = vget(vp, lkflags))) {
             /*
 			 * If vnode is being reclaimed, or has
 			 * already changed identity, no need to wait
 			 */
 		        return (NULL);
-		}
-		if (!skiplock && hfs_lock(cp, HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT) != 0) {
-			vput(vp);
-			return (NULL);
 		}
 
 		/*
@@ -204,9 +201,8 @@ loop:
 			if (cp->c_flag & (C_NOEXISTS | C_DELETED)) {
 				if (!skiplock) {
 					hfs_unlock(cp);
-                    lockmgr((vp)->v_vnlock, LK_RELEASE, NULL);
 				}
-				vput(vp);
+				vrele(vp);
 				return (NULL);
 			}
 		}
@@ -297,11 +293,12 @@ hfs_chash_snoop(struct hfsmount *hfsmp, ino_t inum, int existence_only,
  */
 struct cnode *
 hfs_chash_getcnode(struct hfsmount *hfsmp, ino_t inum, struct vnode **vpp, 
-				   int wantrsrc, int skiplock, int *out_flags, int *hflags)
+				   int wantrsrc, int lkflags, int *out_flags, int *hflags)
 {
 	struct cnode	*cp;
 	struct cnode	*ncp = NULL;
 	struct vnode*		vp;
+    int skiplock = (lkflags & LK_TYPE_MASK) == 0;
 
 	/* 
 	 * Go through the hash list
@@ -338,8 +335,8 @@ loop_with_lock:
 
 			hfs_chash_unlock(hfsmp);
 
-            if (vget(vp, skiplock ? 0 : LK_EXCLUSIVE))
-		        	goto loop;
+            if (vget(vp, lkflags))
+                goto loop;
 		}
 		if (ncp) {
 			/*
@@ -351,7 +348,8 @@ loop_with_lock:
 			ncp = NULL;
 		}
 
-		if (!skiplock) {
+		if (!skiplock && vp == NULL) {
+            // vnode could be null if we're creating a fork...
 			hfs_lock(cp, HFS_EXCLUSIVE_LOCK, HFS_LOCK_ALLOW_NOEXISTS);
 		}
 
@@ -371,7 +369,6 @@ loop_with_lock:
 				renamed = 1;
 			}
 			if (!skiplock){
-                lockmgr((vp)->v_vnlock, LK_RELEASE, NULL);
                 hfs_unlock(cp);
             }
 			if (vp != NULLVP) {
@@ -429,7 +426,7 @@ loop_with_lock:
 	TAILQ_INIT(&ncp->c_hintlist); /* make the list empty */
 	TAILQ_INIT(&ncp->c_originlist);
 
-    lck_rw_init(&ncp->c_rwlock, hfs_rwlock_group, &(lck_attr_t){ LK_CANRECURSE });
+    lockinit(&ncp->c_rwlock, PVFS, "HFS vnode lock", VLKTIMEOUT, LK_IS_VNODE | LK_SLEEPFAIL);
 
 	if (!skiplock)
 		(void) hfs_lock(ncp, HFS_EXCLUSIVE_LOCK, HFS_LOCK_DEFAULT);

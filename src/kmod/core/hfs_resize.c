@@ -109,7 +109,7 @@ hfs_extendfs(struct hfsmount *hfsmp, u_int64_t newsize, struct thread *td)
 			return (error);
 		error = hfs_owner_rights(hfsmp, VTOC(vp)->c_uid, cred, td, 0);
 		if (error == 0) {
-			error = hfs_write_access(vp, cred, td, false);
+			error = hfs_write_access(vp, cred, td, VREAD | VWRITE, false);
 		}
 		vput(vp);
 		if (error)

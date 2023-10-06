@@ -147,9 +147,9 @@ extern uint32_t _hfs_max_file_origins;
  * Reading or writing any of these fields requires holding c_lock.
  */
 struct cnode {
-	lck_rw_t                c_rwlock;       /* cnode's lock */
+	struct lock                   c_rwlock;       /* cnode's lock */
 	struct thread*                c_lockowner;    /* cnode's lock owner (exclusive case only) */
-	lck_rw_t                c_truncatelock; /* protects file from truncation during read/write */
+	struct lock                   c_truncatelock; /* protects file from truncation during read/write */
 	struct thread*                c_truncatelockowner;    /* truncate lock owner (exclusive case only) */
 	LIST_ENTRY(cnode)	c_hash;		/* cnode's hash chain */
 	u_int32_t		c_flag;		/* cnode's runtime flags */
@@ -407,10 +407,25 @@ struct hfsfid {
 	u_int32_t hfsfid_gen;	/* Generation number (create date). */
 };
 
+struct gnv_flags {
+    int lkflags: 32;
+    int wantrsrc: 1,
+        __pad0: 1,
+        create: 1,
+        nocache: 1,
+        usevp: 1;
+    int chash_removed: 1,
+        cat_deleted: 1,
+        newcnode: 1,
+        cat_attrchged: 1;
+};
+
+static struct gnv_flags gnv_null = {0};
+static struct gnv_flags gnv_dfl = { .lkflags = LK_EXCLUSIVE };
 
 /* Get new default vnode */
 extern int hfs_getnewvnode(struct hfsmount *hfsmp, struct vnode *dvp, struct componentname *cnp,
-                           struct cat_desc *descp, int flags, struct cat_attr *attrp,
+                           struct cat_desc *descp, struct gnv_flags flags, struct cat_attr *attrp,
                            struct cat_fork *forkp, struct vnode **vpp, int *out_flags);
 
 /* Input flags for hfs_getnewvnode */
@@ -467,9 +482,9 @@ extern void  hfs_chashwakeup(struct hfsmount *hfsmp, struct cnode *cp, int flags
 extern void  hfs_chash_mark_in_transit(struct hfsmount *hfsmp, struct cnode *cp);
 
 extern struct vnode * hfs_chash_getvnode(struct hfsmount *hfsmp, ino_t inum, int wantrsrc, 
-										int skiplock, int allow_deleted);
+										int lkflags, int allow_deleted);
 extern struct cnode * hfs_chash_getcnode(struct hfsmount *hfsmp, ino_t inum, struct vnode **vpp, 
-										 int wantrsrc, int skiplock, int *out_flags, int *hflags);
+										 int wantrsrc, int lkflags, int *out_flags, int *hflags);
 extern int hfs_chash_snoop(struct hfsmount *, ino_t, int, int (*)(const cnode_t *, void *), void *);
 extern int hfs_valid_cnode(struct hfsmount *hfsmp, struct vnode *dvp, struct componentname *cnp, 
 							cnid_t cnid, struct cat_attr *cattr, int *error);
@@ -582,8 +597,8 @@ extern int hfs_chash_set_childlinkbit(struct hfsmount *hfsmp, cnid_t cnid);
  */
 
 enum hfs_locktype {
-	HFS_SHARED_LOCK = 1, 
-	HFS_EXCLUSIVE_LOCK = 2
+	HFS_SHARED_LOCK = LK_SHARED,
+	HFS_EXCLUSIVE_LOCK = LK_EXCLUSIVE,
 };
 
 /* Option flags for cnode and truncate lock functions */
@@ -597,24 +612,74 @@ enum hfs_lockflags {
 };
 #define HFS_SHARED_OWNER  (void *)0xffffffff
 
-void hfs_lock_always(cnode_t *cnode, enum hfs_locktype);
-int hfs_lock(struct cnode *, enum hfs_locktype, enum hfs_lockflags);
-bool hfs_lock_upgrade(cnode_t *cp);
-int hfs_lockpair(struct cnode *, struct cnode *, enum hfs_locktype);
-int hfs_lockfour(struct cnode *, struct cnode *, struct cnode *, struct cnode *,
-                        enum hfs_locktype, struct cnode **);
-void hfs_unlock(struct cnode *);
-void hfs_unlockpair(struct cnode *, struct cnode *);
-void hfs_unlockfour(struct cnode *, struct cnode *, struct cnode *, struct cnode *);
 
-void hfs_lock_truncate(struct cnode *, enum hfs_locktype, enum hfs_lockflags);
-bool hfs_truncate_lock_upgrade(struct cnode *cp);
-void hfs_truncate_lock_downgrade(struct cnode *cp);
-void hfs_unlock_truncate(struct cnode *, enum hfs_lockflags);
-int hfs_try_trunclock(struct cnode *, enum hfs_locktype, enum hfs_lockflags);
+void _hfs_lock_always(struct cnode *, enum hfs_locktype, const char *file, int line);
+int  _hfs_lock(struct cnode *, enum hfs_locktype, enum hfs_lockflags, const char *file, int line);
+bool _hfs_lock_upgrade(struct cnode *, const char *file, int line);
+bool _hfs_lock_downgrade(struct cnode *, const char *file, int line);
+int  _hfs_lockpair(struct cnode *, struct cnode *, enum hfs_locktype, const char *file, int line);
+int  _hfs_lockfour(struct cnode *, struct cnode *, struct cnode *, struct cnode *, enum hfs_locktype, struct cnode **, const char *file, int line);
+void _hfs_unlock(struct cnode *, const char *file, int line);
+void _hfs_unlockpair(struct cnode *, struct cnode *, const char *file, int line);
+void _hfs_unlockfour(struct cnode *, struct cnode *, struct cnode *, struct cnode *, const char *file, int line);
 
-extern int  hfs_systemfile_lock(struct hfsmount *, int, enum hfs_locktype);
-extern void hfs_systemfile_unlock(struct hfsmount *, int);
+void _hfs_lock_truncate(struct cnode *, enum hfs_locktype, enum hfs_lockflags, const char *file, int line);
+bool _hfs_truncate_lock_upgrade(struct cnode *, const char *file, int line);
+void _hfs_truncate_lock_downgrade(struct cnode *, const char *file, int line);
+void _hfs_unlock_truncate(struct cnode *, enum hfs_lockflags, const char *file, int line);
+int  _hfs_try_trunclock(struct cnode *, enum hfs_locktype, enum hfs_lockflags, const char *file, int line);
+
+#define hfs_lock_always(a, b)              ({ printf("[%p]:_hfs_lock_always(): called by %s():%d\n", curthread, __func__, __LINE__);                      _hfs_lock_always(a, b, __FILE_NAME__, __LINE__);             })
+#define hfs_lock(a, b, c)                  ({ printf("[%p]:_hfs_lock(): called by %s():%d\n", curthread, __func__, __LINE__);                     int r = _hfs_lock(a, b, c, __FILE_NAME__, __LINE__);              r; })
+#define hfs_lock_upgrade(a)                ({ printf("[%p]:_hfs_lock_upgrade(): called by %s():%d\n", curthread, __func__, __LINE__);             int r = _hfs_lock_upgrade(a, __FILE_NAME__, __LINE__);            r; })
+#define hfs_lock_downgrade(a)              ({ printf("[%p]:_hfs_lock_downgrade(): called by %s():%d\n", curthread, __func__, __LINE__);           int r = _hfs_lock_downgrade(a, __FILE_NAME__, __LINE__);          r; })
+#define hfs_lockpair(a, b, c)              ({ printf("[%p]:_hfs_lockpair(): called by %s():%d\n", curthread, __func__, __LINE__);                 int r = _hfs_lockpair(a, b, c, __FILE_NAME__, __LINE__);          r; })
+#define hfs_lockfour(a, b, c, d, e, f)     ({ printf("[%p]:_hfs_lockfour(): called by %s():%d\n", curthread, __func__, __LINE__);                 int r = _hfs_lockfour(a, b, c, d, e, f, __FILE_NAME__, __LINE__); r; })
+#define hfs_unlock(a)                      ({ printf("[%p]:_hfs_unlock(): called by %s():%d\n", curthread, __func__, __LINE__);                           _hfs_unlock(a, __FILE_NAME__, __LINE__);                     })
+#define hfs_unlockpair(a, b)               ({ printf("[%p]:_hfs_unlockpair(): called by %s():%d\n", curthread, __func__, __LINE__);                       _hfs_unlockpair(a, b, __FILE_NAME__, __LINE__);              })
+#define hfs_unlockfour(a, b, c, d)         ({ printf("[%p]:_hfs_unlockfour(): called by %s():%d\n", curthread, __func__, __LINE__);                       _hfs_unlockfour(a, b, c, d, __FILE_NAME__, __LINE__);        })
+
+#define hfs_lock_truncate(a, b, c)         ({ printf("[%p]:_hfs_lock_truncate(): called by %s():%d\n", curthread, __func__, __LINE__);                    _hfs_lock_truncate(a, b, c, __FILE_NAME__, __LINE__);        })
+#define hfs_truncate_lock_upgrade(a)       ({ printf("[%p]:_hfs_truncate_lock_upgrade(): called by %s():%d\n", curthread, __func__, __LINE__);    int r = _hfs_truncate_lock_upgrade(a, __FILE_NAME__, __LINE__);   r; })
+#define hfs_truncate_lock_downgrade(a)     ({ printf("[%p]:_hfs_truncate_lock_downgrade(): called by %s():%d\n", curthread, __func__, __LINE__);          _hfs_truncate_lock_downgrade(a, __FILE_NAME__, __LINE__);    })
+#define hfs_unlock_truncate(a, b)          ({ printf("[%p]:_hfs_unlock_truncate(): called by %s():%d\n", curthread, __func__, __LINE__);                  _hfs_unlock_truncate(a, b, __FILE_NAME__, __LINE__);         })
+#define hfs_try_trunclock(a, b, c)         ({ printf("[%p]:_hfs_try_trunclock(): called by %s():%d\n", curthread, __func__, __LINE__);            int r = _hfs_try_trunclock(a, b, c, __FILE_NAME__, __LINE__);     r; })
+
+int hfs_vnop_lock1(struct vop_lock1_args *ap);
+int hfs_vnop_unlock(struct vop_unlock_args *ap);
+
+
+extern int  _hfs_systemfile_lock(struct hfsmount *, int, enum hfs_locktype, const char *func, const char *file, int line);
+extern void _hfs_systemfile_unlock(struct hfsmount *, int, const char *func, const char *file, int line);
+#define hfs_systemfile_lock(mp, f, t)       (_hfs_systemfile_lock(mp, f, t, __func__, __FILE_NAME__, __LINE__))
+#define hfs_systemfile_unlock(mp, f)        (_hfs_systemfile_unlock(mp, f, __func__, __FILE_NAME__, __LINE__))
+
+extern void record_unneeded_lock(int lkstat, const char *func, const char *file, int line);
+
+// call from a VOP.
+// This will help preserve any ambiguous lock statuses from VOPs
+#define \
+hfs_ambiguous_lock(lkstat, cp, flags) ({                                        \
+    int __lkstat__ = lkstat;                                                    \
+    int __error__;                                                              \
+    if (lkstat == LK_SHARED) {                                                  \
+        hfs_lock_upgrade(cp);                                                   \
+    } else if (__lkstat__ != LK_EXCLUSIVE) {                                    \
+        if ((__error__ = hfs_lock(cp, HFS_EXCLUSIVE_LOCK, flags)))              \
+            trace_return (__error__);                                           \
+    }                                                                           \
+    __lkstat__;                                                                 \
+})
+
+#define \
+hfs_ambiguous_unlock(lkstat, cp) ({             \
+    int __lkstat__ = lkstat;                    \
+    if (lkstat == LK_SHARED) {                  \
+        hfs_lock_downgrade(cp);                 \
+    } else if (__lkstat__ != LK_EXCLUSIVE) {    \
+        hfs_unlock(cp);                         \
+    }                                           \
+})
 
 void hfs_clear_might_be_dirty_flag(cnode_t *cp);
 

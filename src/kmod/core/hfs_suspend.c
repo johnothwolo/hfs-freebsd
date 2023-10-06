@@ -42,6 +42,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/conf.h>
 #include <sys/jail.h>
 #include <sys/sx.h>
+#include <sys/kdb.h>
 
 #include    "hfs.h"
 #include    "hfs_attrlist.h"
@@ -198,7 +199,9 @@ static int
 hfs_susp_suspend(struct mount *mp, struct thread *td)
 {
     struct hfsmount *hfsmp;
-    int error;
+    int error = ENOSYS;
+
+    kdb_enter(KDB_WHY_PANIC, "filesystem suspending isn't implemented");
 
     sx_assert(&hfs_susp_lock, SA_XLOCKED);
 

@@ -120,6 +120,8 @@
 #include "FileMgrInternal.h"
 #include "BTreesInternal.h"
 
+SDT_PROVIDER_DEFINE(hfs);
+
 #define HFS_MOUNT_DEBUG 1
 
 /* Enable/disable debugging code for live volume resizing, defined in hfs_resize.c */
@@ -216,17 +218,17 @@ hfs_mount(struct mount *mp)
     opts = mp->mnt_optnew;
     
     if (vfs_filteropt(opts, hfs_opts))
-        return (EINVAL);
+        trace_return (EINVAL);
     
     vfs_getopt(opts, "fspath", (void **)&path, NULL);
     /* Double-check the length of path.. */
     if (strlen(path) >= MAXMNTLEN)
-        return (ENAMETOOLONG);
+        trace_return (ENAMETOOLONG);
     
     fspec = NULL;
     retval = vfs_getopt(opts, "from", (void **)&fspec, &len);
     if (!retval && fspec[len - 1] != '\0')
-        return (EINVAL);
+        trace_return (EINVAL);
     
     (void) hfs_args_parse(mp, &args);
     
@@ -249,7 +251,7 @@ hfs_mount(struct mount *mp)
 				if (HFS_MOUNT_DEBUG) {
 					printf("hfs_mount: MNT_RELOAD not supported on rdwr filesystem %s\n", hfsmp->vcbVN);
 				}
-				return (EINVAL);
+				trace_return (EINVAL);
 			}
 		}
 
@@ -516,16 +518,16 @@ hfs_mount(struct mount *mp)
          * and verify that it refers to a sensible disk device.
          */
         if (fspec == NULL)
-            return (EINVAL);
+            trace_return (EINVAL);
         NDINIT(ndp, LOOKUP, FOLLOW | LOCKLEAF, UIO_SYSSPACE, fspec, td);
         if ((retval = namei(ndp)) != 0)
-            return (retval);
+            trace_return (retval);
         NDFREE(ndp, NDF_ONLY_PNBUF);
         devvp = ndp->ni_vp;
 
         if (!vn_isdisk_error(devvp, &retval)) {
             vput(devvp);
-            return (retval);
+            trace_return (retval);
         }
         
         if (devvp == NULL) {
@@ -547,7 +549,7 @@ hfs_mount(struct mount *mp)
             retval = priv_check(td, PRIV_VFS_MOUNT_PERM);
         if (retval) {
             vput(devvp);
-            return (retval);
+            trace_return (retval);
         }
         
 		/* Set the mount flag to indicate that we support volfs  */
@@ -595,7 +597,7 @@ out:
 	if (retval == 0) {
 		(void)hfs_statfs(mp, &(mp)->mnt_stat);
 	}
-	return (retval);
+	trace_return (retval);
 }
 
 /* Change fs mount parameters */
@@ -801,7 +803,7 @@ loop:
 
 exit:
 	hfsmp->hfs_flags &= ~HFS_IN_CHANGEFS;
-	return (retval);
+	trace_return (retval);
 }
 
 /*
@@ -836,7 +838,7 @@ hfs_reload(struct mount *mountp, struct thread *td, int flags)
 	vcb = HFSTOVCB(hfsmp);
 
 	if (vcb->vcbSigWord == kHFSSigWord)
-		return (EINVAL);	/* rooting from HFS is not supported! */
+		trace_return (EINVAL);	/* rooting from HFS is not supported! */
 
 	/*
 	 * Invalidate all cached meta-data.
@@ -911,7 +913,7 @@ loop:
 	if (error) {
         	if (bp != NULL)
         		brelse(bp);
-		return (error);
+		trace_return (error);
 	}
 
 	vhp = (HFSPlusVolumeHeader *) (bp->b_data + HFS_PRI_OFFSET(hfsmp->hfs_physical_block_size));
@@ -923,7 +925,7 @@ loop:
 	     SWAP_BE16(vhp->version) != kHFSXVersion) ||
 	    SWAP_BE32(vhp->blockSize) != vcb->blockSize) {
 		brelse(bp);
-		return (EIO);
+		trace_return (EIO);
 	}
 
 	vcb->vcbLsMod		= to_bsd_time(SWAP_BE32(vhp->modifyDate));
@@ -1000,21 +1002,21 @@ loop:
 	 */
 	forkp = VTOF((struct vnode *)vcb->extentsRefNum);
 	if ( (error = MacToVFSError( BTReloadData((FCB*)forkp) )) )
-		return (error);
+		trace_return (error);
 
 	forkp = VTOF((struct vnode *)vcb->catalogRefNum);
 	if ( (error = MacToVFSError( BTReloadData((FCB*)forkp) )) )
-		return (error);
+		trace_return (error);
 
 	if (hfsmp->hfs_attribute_vp) {
 		forkp = VTOF(hfsmp->hfs_attribute_vp);
 		if ( (error = MacToVFSError( BTReloadData((FCB*)forkp) )) )
-			return (error);
+			trace_return (error);
 	}
 
 	/* Reload the volume name */
 	if ((error = cat_idlookup(hfsmp, kHFSRootFolderID, 0, 0, &cndesc, NULL, NULL)))
-		return (error);
+		trace_return (error);
 	vcb->volumeNameEncodingHint = cndesc.cd_encoding;
 	bcopy(cndesc.cd_nameptr, vcb->vcbVN, min(255, cndesc.cd_namelen));
 	cat_releasedesc(&cndesc);
@@ -1062,16 +1064,14 @@ void hfs_syncer(void *arg)
 			break;
 		}
 
-		/* Check to see whether we should flush now: either the oldest
-		   is > HFS_MAX_META_DELAY or HFS_META_DELAY has elapsed since
-		   the request and there are no pending writes. */
-            
-        // FIXME:CRITICAL: ...
-//        uint64_t idle_time = 0; //vfs_idle_time(hfsmp->hfs_mp);
+		/*
+         *  Check to see whether we should flush now:
+         *      HFS_META_DELAY has elapsed since
+         *      the request and there are no pending writes.
+         *      We won't measure the idle time here.
+         */
 
-		if (!hfs_has_elapsed(hfsmp->hfs_sync_req_oldest, ticks, HFS_MAX_META_DELAY)
-            
-            ) {
+		if (!hfs_has_elapsed(hfsmp->hfs_sync_req_oldest, ticks, HFS_MAX_META_DELAY)) {
 			continue;
 		}
 
@@ -1457,7 +1457,7 @@ hfs_mountfs(struct vnode *devvp, struct mount *mp, struct hfs_mount_args *args,
 	 *  Init the volume information structure
 	 */
 	
-	lck_mtx_init(&hfsmp->hfs_mutex, hfs_mutex_group, hfs_lock_attr);
+    mtx_init(&hfsmp->hfs_mutex, "hfs_mutex", "hfs_mutex_group", MTX_DEF);
 	lck_mtx_init(&hfsmp->hfc_mutex, hfs_mutex_group, hfs_lock_attr);
 	lck_rw_init(&hfsmp->hfs_global_lock, hfs_rwlock_group, hfs_lock_attr);
 	lck_spin_init(&hfsmp->vcbFreeExtLock, hfs_spinlock_group, hfs_lock_attr);
@@ -2089,7 +2089,7 @@ error_exit:
 		if (mp)
 			mp->mnt_data = NULL;
 	}
-	return (retval);
+	trace_return (retval);
 }
 
 
@@ -2133,7 +2133,7 @@ hfs_unmount(struct mount *mp, int mntflags)
 		   dev_name ?: "unknown device");
     
 	if ((retval = hfs_flushfiles(mp, flags, td)) && !force)
- 		return (retval);
+ 		trace_return (retval);
 
 	if (hfsmp->hfs_flags & HFS_METADATA_ZONE)
 		(void) hfs_recording_suspend(hfsmp);
@@ -2335,7 +2335,7 @@ hfs_unmount(struct mount *mp, int mntflags)
 	if (started_tr) {
 		hfs_end_transaction(hfsmp);
 	}
-	return retval;
+	trace_return (retval);
 }
 
 
@@ -2344,7 +2344,7 @@ hfs_unmount(struct mount *mp, int mntflags)
  */
 int hfs_vfs_root(struct mount *mp, int flags, struct vnode **vpp)
 {
-	return hfs_vget(VFSTOHFS(mp), (cnid_t)kHFSRootFolderID, vpp, 1, 0);
+	trace_return (hfs_vget(VFSTOHFS(mp), (cnid_t)kHFSRootFolderID, vpp, flags, 0));
 }
 
 
@@ -2355,7 +2355,7 @@ int hfs_vfs_root(struct mount *mp, int flags, struct vnode **vpp)
 static int
 hfs_quotactl(struct mount *mp, int cmds, uid_t uid, void *arg)
 {
-	return (ENOTSUP);
+	trace_return (ENOTSUP);
 }
 #else
 static int
@@ -2378,14 +2378,14 @@ hfs_quotactl(struct mount *mp, int cmds, uid_t uid, void *datap)
 		/* fall through */
 	default:
 		if ( (error = vfs_context_suser(context)) )
-			return (error);
+			trace_return (error);
 	}
 
 	type = cmds & SUBCMDMASK;
 	if ((u_int)type >= MAXQUOTAS)
-		return (EINVAL);
+		trace_return (EINVAL);
 	if ((error = vfs_busy(mp, LK_NOWAIT)) != 0)
-		return (error);
+		trace_return (error);
 
 	switch (cmd) {
 
@@ -2423,7 +2423,7 @@ hfs_quotactl(struct mount *mp, int cmds, uid_t uid, void *datap)
 	}
 	vfs_unbusy(mp);
 
-	return (error);
+	trace_return (error);
 }
 #endif /* QUOTA */
 
@@ -2478,6 +2478,15 @@ hfs_statfs(struct mount *mp, register struct statfs *sbp)
 #endif
 //	sbp->f_fssubtype = subtype;
 
+#if CONFIG_HFS_STD
+    if ((VTOHFS(ap->a_vp)->hfs_flags & HFS_STANDARD) != 0) {
+        sbp->f_namemax = kHFSMaxFileNameChars;  /* 31 */
+    } else
+#endif
+    {
+        sbp->f_namemax = kHFSPlusMaxFileNameChars;  /* 255 */
+    }
+    
 	return (0);
 }
 
@@ -2589,12 +2598,12 @@ hfs_sync(struct mount *mp, int waitfor)
 	if ((hfsmp->hfs_flags & HFS_IN_CHANGEFS)
 	    || hfsmp->hfs_freeze_state != HFS_THAWED) {
 		hfs_unlock_mount(hfsmp);
-		return 0;
+		return (0);
 	}
 
 	if (hfsmp->hfs_flags & HFS_READ_ONLY) {
 		hfs_unlock_mount(hfsmp);
-		return (EROFS);
+		trace_return (EROFS);
 	}
 
 	++hfsmp->hfs_syncers;
@@ -2703,7 +2712,7 @@ hfs_sync(struct mount *mp, int waitfor)
 	if (wake)
 		wakeup(&hfsmp->hfs_freeze_state);
 
-	return (error);
+	trace_return (error);
 }
 
 
@@ -2727,11 +2736,11 @@ hfs_fhtovp(struct mount *mp, struct fid *fhp, int flags, struct vnode **vpp)
 	*vpp = NULL;
 	hfsfhp = (struct hfsfid *)fhp;
 
-	result = hfs_vget(VFSTOHFS(mp), ntohl(hfsfhp->hfsfid_cnid), &nvp, 0, 0);
+    result = hfs_vget(VFSTOHFS(mp), ntohl(hfsfhp->hfsfid_cnid), &nvp, flags, 0);
 	if (result) {
 		if (result == ENOENT)
 			result = ESTALE;
-		return result;
+		trace_return (result);
 	}
 
 	/* 
@@ -2765,7 +2774,7 @@ hfs_vptofh(struct vop_vptofh_args *ap)
 	struct hfsfid *hfsfhp;
 
 	if (ISHFS(VTOVCB(vp)))
-		return (ENOTSUP);	/* hfs standard is not exportable */
+		trace_return (ENOTSUP);	/* hfs standard is not exportable */
 
 	cp = VTOC(vp);
 	hfsfhp = (struct hfsfid *)ap->a_fhp;
@@ -2845,7 +2854,7 @@ static void
 hfs_locks_destroy(struct hfsmount *hfsmp)
 {
 
-	lck_mtx_destroy(&hfsmp->hfs_mutex, hfs_mutex_group);
+	mtx_destroy(&hfsmp->hfs_mutex);
 	lck_mtx_destroy(&hfsmp->hfc_mutex, hfs_mutex_group);
 	lck_rw_destroy(&hfsmp->hfs_global_lock, hfs_rwlock_group);
 	lck_spin_destroy(&hfsmp->vcbFreeExtLock, hfs_spinlock_group);
@@ -2862,20 +2871,20 @@ hfs_getmountpoint(struct vnode *vp, struct hfsmount **hfsmpp)
     char *fstypename;
 
 	if (vp == NULL)
-		return (EINVAL);
+		trace_return (EINVAL);
 	
 	if (!(vp->v_vflag & VV_ROOT))
-		return (EINVAL);
+		trace_return (EINVAL);
     
     fstypename = vp->v_mount->mnt_vfc->vfc_name;
     
 	if (strncmp(fstypename, "hfs", MFSNAMELEN) != 0)
-		return (EINVAL);
+		trace_return (EINVAL);
 
 	hfsmp = VTOHFS(vp);
 
 	if (HFSTOVCB(hfsmp)->vcbSigWord == kHFSSigWord)
-		return (EINVAL);
+		trace_return (EINVAL);
 
 	*hfsmpp = hfsmp;
 
@@ -2960,7 +2969,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
             
             error = SYSCTL_IN(req, &bias, sizeof(bias));
             if (error)
-                return (error);
+                trace_return (error);
             
             hfs_setencodingbias(bias);
         }
@@ -2977,7 +2986,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
 			return EINVAL;
         
 		if ((error = hfs_getmountpoint(vp, &hfsmp)))
-			return (error);
+			trace_return (error);
 
 		/* Start with the 'size' set to the current number of bytes in the filesystem */
 		newsize = ((uint64_t)hfsmp->totalBlocks) * ((uint64_t)hfsmp->blockSize);
@@ -3008,7 +3017,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
 
 		/* Only root can enable journaling */
 		if (!priv_check_cred(td->td_ucred, PRIV_VFS_ADMIN)) {
-			return (EPERM);
+			trace_return (EPERM);
 		}
         
 		if (namelen != 4)
@@ -3200,7 +3209,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
 
 		/* Only root can disable journaling */
 		if (!priv_check_cred(td->td_ucred, PRIV_VFS_ADMIN)) {
-			return (EPERM);
+			trace_return (EPERM);
 		}
 
 		hfsmp = hfs_mount_from_cwd(td);
@@ -3263,7 +3272,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
 		if (error) return (error);
 
 		mp = vfs_getvfs(&vc.vc_fsid); /* works for 32 and 64 */
-        if (mp == NULL) return (ENOENT);
+        if (mp == NULL) trace_return (ENOENT);
         
 		hfsmp = VFSTOHFS(mp);
 		bzero(&vq, sizeof(vq));
@@ -3275,7 +3284,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
 		int device_fd;
         
 //		if (namelen != 2) {
-//			return (EINVAL);
+//			trace_return (EINVAL);
 //		}
 //
 //		device_fd = name[1];
@@ -3291,7 +3300,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
 #if DEBUG || TARGET_OS_OSX
 	else if (op == HFS_ENABLE_RESIZE_DEBUG) {
 		if (!priv_check_cred(td->td_ucred, PRIV_VFS_ADMIN)) {
-			return (EPERM);
+			trace_return (EPERM);
 		}
 
 		int old = hfs_resize_debug;
@@ -3308,7 +3317,7 @@ hfs_sysctl(struct mount *mp, fsctlop_t op,struct sysctl_req *req)
 #endif // DEBUG || OSX
 
 #endif // disable
-	return (ENOTSUP);
+	trace_return (ENOTSUP);
 }
 
 /* 
@@ -3326,9 +3335,9 @@ hfs_vfs_vget(struct mount *mp, ino_t ino, int flags, struct vnode **vpp)
 
 	hfsmp = VFSTOHFS(mp);
 
-	error = hfs_vget(hfsmp, (cnid_t)ino, vpp, 1, 0);
+	error = hfs_vget(hfsmp, (cnid_t)ino, vpp, flags, 0);
 	if (error)
-		return error;
+		trace_return (error);
 
 	/*
 	 * If the look-up was via the object ID (rather than the link ID),
@@ -3377,7 +3386,7 @@ hfs_vfs_vget(struct mount *mp, ino_t ino, int flags, struct vnode **vpp)
 		}
 	}
 
-	return error;
+	trace_return (error);
 }
 
 
@@ -3397,16 +3406,18 @@ hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int lkflags, i
 	struct cat_fork cnfork;
 	u_int32_t linkref = 0;
 	int error;
-	
+    struct gnv_flags gflags = {0};
+    gflags.lkflags = lkflags;
+    
 	/* Check for cnids that should't be exported. */
 	if ((cnid < kHFSFirstUserCatalogNodeID) &&
 	    (cnid != kHFSRootFolderID && cnid != kHFSRootParentID)) {
-		return (ENOENT);
+		trace_return (ENOENT);
 	}
 	/* Don't export our private directories. */
 	if (cnid == hfsmp->hfs_private_desc[FILE_HARDLINKS].cd_cnid ||
 	    cnid == hfsmp->hfs_private_desc[DIR_HARDLINKS].cd_cnid) {
-		return (ENOENT);
+		trace_return (ENOENT);
 	}
 	/*
 	 * Check the hash first
@@ -3473,7 +3484,7 @@ hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int lkflags, i
 		           (bcmp(nameptr, HFS_DELETE_PREFIX, HFS_DELETE_PREFIX_LEN) == 0)) {
 			*vpp = NULL;
 			cat_releasedesc(&cndesc);
-			return (ENOENT);  /* open unlinked file */
+			trace_return (ENOENT);  /* open unlinked file */
 		}
 	}
 
@@ -3515,7 +3526,7 @@ hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int lkflags, i
 	if (linkref) {
 		int newvnode_flags = 0;
 		
-		error = hfs_getnewvnode(hfsmp, NULL, NULL, &cndesc, 0, &cnattr,
+        error = hfs_getnewvnode(hfsmp, NULL, NULL, &cndesc, gflags, &cnattr,
 								&cnfork, &vp, &newvnode_flags);
 		if (error == 0) {
 			VTOC(vp)->c_flag |= C_HARDLINK;
@@ -3538,7 +3549,7 @@ hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int lkflags, i
 
 		bcopy(cndesc.cd_nameptr, cn.cn_nameptr, cndesc.cd_namelen + 1);
 
-		error = hfs_getnewvnode(hfsmp, NULLVP, &cn, &cndesc, 0, &cnattr, 
+        error = hfs_getnewvnode(hfsmp, NULLVP, &cn, &cndesc, gflags, &cnattr,
 								&cnfork, &vp, &newvnode_flags);
 
 		if (error == 0 && (VTOC(vp)->c_flag & C_HARDLINK)) {
@@ -3550,10 +3561,10 @@ hfs_vget(struct hfsmount *hfsmp, cnid_t cnid, struct vnode **vpp, int lkflags, i
 	cat_releasedesc(&cndesc);
 
 	*vpp = vp;
-	if (vp && (lkflags & LK_TYPE_MASK) == 0) {
+    if (vp && ((gflags.lkflags & LK_TYPE_MASK) == 0)) {
 		hfs_unlock(VTOC(vp));
 	}
-	return (error);
+	trace_return (error);
 }
 
 
@@ -3601,7 +3612,7 @@ hfs_flushfiles(struct mount *mp, int flags, __unused struct thread *td)
 
 	error = vflush(mp, (int)accounted_root_usecounts > 0, SKIPSYSTEM | flags, td);
 	if (error != 0)
-		return(error);
+		trace_return (error);
 
 	error = vflush(mp, (int)accounted_root_usecounts > 0, SKIPSYSTEM | flags, td);
 
@@ -3620,7 +3631,7 @@ hfs_flushfiles(struct mount *mp, int flags, __unused struct thread *td)
 		vrele(skipvp);
 	}
 	if (error && (flags & FORCECLOSE) == 0)
-		return (error);
+		trace_return (error);
 
 #if QUOTA
 	if (((unsigned int)mp->mnt_flag) & MNT_QUOTA) {
@@ -3637,7 +3648,7 @@ hfs_flushfiles(struct mount *mp, int flags, __unused struct thread *td)
 		error = vflush(mp, 0, SKIPSYSTEM | flags, td);
 	}
 
-	return (error);
+	trace_return (error);
 }
 
 /*
@@ -4331,11 +4342,11 @@ hfs_getvoluuid(struct hfsmount *hfsmp, uuid_t result_uuid)
 /*
  * Get file system attributes.
  */
+// TODO: CRITICAL: if this is deleted or replace with hfs_statfs, make sure statfs::f_fsid is handled properly in hfs_mount()/hfs_journal_replay()
+// to prevent mount/unmount bugs.
 static int
 hfs_vfs_getattr(struct mount *mp, struct statfs *fsap)
 {
-#define HFS_ATTR_FILE_VALIDMASK (ATTR_FILE_VALIDMASK & ~(ATTR_FILE_FILETYPE | ATTR_FILE_FORKCOUNT | ATTR_FILE_FORKLIST | ATTR_FILE_CLUMPSIZE))
-#define HFS_ATTR_CMN_VOL_VALIDMASK (ATTR_CMN_VALIDMASK & ~(ATTR_CMN_DATA_PROTECT_FLAGS))
 
 	ExtendedVCB *vcb = VFSTOVCB(mp);
 	struct hfsmount *hfsmp = VFSTOHFS(mp);
@@ -4366,254 +4377,18 @@ hfs_vfs_getattr(struct mount *mp, struct statfs *fsap)
 	const int diskimage = 0;
 #endif
 
-//	fsap->f_objcount = ((u_int64_t)hfsmp->vcbFilCnt + (u_int64_t)hfsmp->vcbDirCnt);
-//	fsap->f_filecount = ((u_int64_t)hfsmp->vcbFilCnt);
-//	fsap->f_dircount = ((u_int64_t)hfsmp->vcbDirCnt);
-//	fsap->f_maxobjcount = ((u_int64_t)0xFFFFFFFF);
 	fsap->f_iosize = (size_t) mp->mnt_iosize_max;
 	fsap->f_blocks = (u_int64_t)hfsmp->totalBlocks;
-//	if (VFSATTR_WANTED(fsap, f_bfree) || !diskimage) {
-		fsap->f_bfree = ((u_int64_t)hfs_freeblks(hfsmp, 0));
-//	}
-//	if (VFSATTR_WANTED(fsap, f_bavail) || !diskimage) {
-		fsap->f_bavail = ((u_int64_t)hfs_freeblks(hfsmp, 1));
-//	}
+    fsap->f_bfree = ((u_int64_t)hfs_freeblks(hfsmp, 0));
+    fsap->f_bavail = ((u_int64_t)hfs_freeblks(hfsmp, 1));
 	fsap->f_bsize = ((u_int32_t)vcb->blockSize);
-	/* XXX needs clarification */
-//	if (VFSATTR_WANTED(fsap, f_bused) || !diskimage) {
-//		fsap->f_bused = (hfsmp->totalBlocks - hfs_freeblks(hfsmp, 1));
-//	}
 	fsap->f_files = ((u_int64_t)HFS_MAX_FILES);
 	fsap->f_ffree = ((u_int64_t)hfs_free_cnids(hfsmp));
 
 	fsap->f_fsid.val[0] = (uint32_t) dev2udev(hfsmp->hfs_raw_dev);
 	fsap->f_fsid.val[1] = (mp->mnt_vfc->vfc_typenum);
+    fsap->f_namemax = kHFSPlusMaxFileNameChars;  /* 255 */
 
-//	fsap->f_signature = (vcb->vcbSigWord);
-//	fsap->f_carbon_fsid = (0);
-
-//	if (VFSATTR_IS_ACTIVE(fsap, f_capabilities)) {
-//		vol_capabilities_attr_t *cap;
-//
-//		cap = &fsap->f_capabilities;
-//
-//		if ((hfsmp->hfs_flags & HFS_STANDARD) == 0) {
-//			/* HFS+ & variants */
-//			cap->capabilities[VOL_CAPABILITIES_FORMAT] =
-//				VOL_CAP_FMT_PERSISTENTOBJECTIDS |
-//				VOL_CAP_FMT_SYMBOLICLINKS |
-//				VOL_CAP_FMT_HARDLINKS |
-//				VOL_CAP_FMT_JOURNAL |
-//				VOL_CAP_FMT_ZERO_RUNS |
-//				(hfsmp->jnl ? VOL_CAP_FMT_JOURNAL_ACTIVE : 0) |
-//				(hfsmp->hfs_flags & HFS_CASE_SENSITIVE ? VOL_CAP_FMT_CASE_SENSITIVE : 0) |
-//				VOL_CAP_FMT_CASE_PRESERVING |
-//				VOL_CAP_FMT_FAST_STATFS |
-//				VOL_CAP_FMT_2TB_FILESIZE |
-//				VOL_CAP_FMT_HIDDEN_FILES |
-//#if HFS_COMPRESSION
-//				VOL_CAP_FMT_DECMPFS_COMPRESSION |
-//#endif
-//#if CONFIG_HFS_DIRLINK
-//				VOL_CAP_FMT_DIR_HARDLINKS |
-//#endif
-//#ifdef VOL_CAP_FMT_DOCUMENT_ID
-//				VOL_CAP_FMT_DOCUMENT_ID |
-//#endif /* VOL_CAP_FMT_DOCUMENT_ID */
-//#ifdef VOL_CAP_FMT_WRITE_GENERATION_COUNT
-//				VOL_CAP_FMT_WRITE_GENERATION_COUNT |
-//#endif /* VOL_CAP_FMT_WRITE_GENERATION_COUNT */
-//				VOL_CAP_FMT_PATH_FROM_ID;
-//		}
-//#if CONFIG_HFS_STD
-//		else {
-//			/* HFS standard */
-//			cap->capabilities[VOL_CAPABILITIES_FORMAT] =
-//				VOL_CAP_FMT_PERSISTENTOBJECTIDS |
-//				VOL_CAP_FMT_CASE_PRESERVING |
-//				VOL_CAP_FMT_FAST_STATFS |
-//				VOL_CAP_FMT_HIDDEN_FILES |
-//				VOL_CAP_FMT_PATH_FROM_ID;
-//		}
-//#endif
-//
-//		/*
-//		 * The capabilities word in 'cap' tell you whether or not
-//		 * this particular filesystem instance has feature X enabled.
-//		 */
-//
-//		cap->capabilities[VOL_CAPABILITIES_INTERFACES] =
-//			VOL_CAP_INT_ATTRLIST |
-//			VOL_CAP_INT_NFSEXPORT |
-//			VOL_CAP_INT_READDIRATTR |
-//			VOL_CAP_INT_ALLOCATE |
-//			VOL_CAP_INT_VOL_RENAME |
-//			VOL_CAP_INT_ADVLOCK |
-//			VOL_CAP_INT_FLOCK |
-//#if VOL_CAP_INT_RENAME_EXCL
-//			VOL_CAP_INT_RENAME_EXCL |
-//#endif
-//#if NAMEDSTREAMS
-//			VOL_CAP_INT_EXTENDED_ATTR |
-//			VOL_CAP_INT_NAMEDSTREAMS;
-//#else
-//			VOL_CAP_INT_EXTENDED_ATTR;
-//#endif
-//
-//		/* HFS may conditionally support searchfs and exchangedata depending on the runtime */
-//
-//		if (searchfs_on) {
-//			cap->capabilities[VOL_CAPABILITIES_INTERFACES] |= VOL_CAP_INT_SEARCHFS;
-//		}
-//		if (exchangedata_on) {
-//			cap->capabilities[VOL_CAPABILITIES_INTERFACES] |= VOL_CAP_INT_EXCHANGEDATA;
-//		}
-//
-//		cap->capabilities[VOL_CAPABILITIES_RESERVED1] = 0;
-//		cap->capabilities[VOL_CAPABILITIES_RESERVED2] = 0;
-//
-//		cap->valid[VOL_CAPABILITIES_FORMAT] =
-//			VOL_CAP_FMT_PERSISTENTOBJECTIDS |
-//			VOL_CAP_FMT_SYMBOLICLINKS |
-//			VOL_CAP_FMT_HARDLINKS |
-//			VOL_CAP_FMT_JOURNAL |
-//			VOL_CAP_FMT_JOURNAL_ACTIVE |
-//			VOL_CAP_FMT_NO_ROOT_TIMES |
-//			VOL_CAP_FMT_SPARSE_FILES |
-//			VOL_CAP_FMT_ZERO_RUNS |
-//			VOL_CAP_FMT_CASE_SENSITIVE |
-//			VOL_CAP_FMT_CASE_PRESERVING |
-//			VOL_CAP_FMT_FAST_STATFS |
-//			VOL_CAP_FMT_2TB_FILESIZE |
-//			VOL_CAP_FMT_OPENDENYMODES |
-//			VOL_CAP_FMT_HIDDEN_FILES |
-//			VOL_CAP_FMT_PATH_FROM_ID |
-//			VOL_CAP_FMT_DECMPFS_COMPRESSION |
-//#ifdef VOL_CAP_FMT_DOCUMENT_ID
-//			VOL_CAP_FMT_DOCUMENT_ID |
-//#endif /* VOL_CAP_FMT_DOCUMENT_ID */
-//#ifdef VOL_CAP_FMT_WRITE_GENERATION_COUNT
-//			VOL_CAP_FMT_WRITE_GENERATION_COUNT |
-//#endif /* VOL_CAP_FMT_WRITE_GENERATION_COUNT */
-//			VOL_CAP_FMT_DIR_HARDLINKS;
-//
-//		/*
-//		 * Bits in the "valid" field tell you whether or not the on-disk
-//		 * format supports feature X.
-//		 */
-//
-//		cap->valid[VOL_CAPABILITIES_INTERFACES] =
-//			VOL_CAP_INT_ATTRLIST |
-//			VOL_CAP_INT_NFSEXPORT |
-//			VOL_CAP_INT_READDIRATTR |
-//			VOL_CAP_INT_COPYFILE |
-//			VOL_CAP_INT_ALLOCATE |
-//			VOL_CAP_INT_VOL_RENAME |
-//			VOL_CAP_INT_ADVLOCK |
-//			VOL_CAP_INT_FLOCK |
-//			VOL_CAP_INT_MANLOCK |
-//#if VOL_CAP_INT_RENAME_EXCL
-//			VOL_CAP_INT_RENAME_EXCL |
-//#endif
-//
-//#if NAMEDSTREAMS
-//			VOL_CAP_INT_EXTENDED_ATTR |
-//			VOL_CAP_INT_NAMEDSTREAMS;
-//#else
-//			VOL_CAP_INT_EXTENDED_ATTR;
-//#endif
-//
-//		/* HFS always supports exchangedata and searchfs in the on-disk format natively */
-//		cap->valid[VOL_CAPABILITIES_INTERFACES] |= (VOL_CAP_INT_SEARCHFS | VOL_CAP_INT_EXCHANGEDATA);
-//
-//
-//		cap->valid[VOL_CAPABILITIES_RESERVED1] = 0;
-//		cap->valid[VOL_CAPABILITIES_RESERVED2] = 0;
-//		VFSATTR_SET_SUPPORTED(fsap, f_capabilities);
-//	}
-//	if (VFSATTR_IS_ACTIVE(fsap, f_attributes)) {
-//		vol_attributes_attr_t *attrp = &fsap->f_attributes;
-//
-//        	attrp->validattr.commonattr = HFS_ATTR_CMN_VOL_VALIDMASK;
-//#if CONFIG_PROTECT
-//        	attrp->validattr.commonattr |= ATTR_CMN_DATA_PROTECT_FLAGS;
-//#endif // CONFIG_PROTECT
-//
-//        	attrp->validattr.volattr = ATTR_VOL_VALIDMASK & ~ATTR_VOL_INFO;
-//        	attrp->validattr.dirattr = ATTR_DIR_VALIDMASK;
-//        	attrp->validattr.fileattr = HFS_ATTR_FILE_VALIDMASK;
-//        	attrp->validattr.forkattr = 0;
-//
-//		attrp->nativeattr.commonattr = HFS_ATTR_CMN_VOL_VALIDMASK;
-//#if CONFIG_PROTECT
-//		attrp->nativeattr.commonattr |= ATTR_CMN_DATA_PROTECT_FLAGS;
-//#endif // CONFIG_PROTECT
-//
-//       	attrp->nativeattr.volattr = ATTR_VOL_VALIDMASK & ~ATTR_VOL_INFO;
-//        	attrp->nativeattr.dirattr = ATTR_DIR_VALIDMASK;
-//        	attrp->nativeattr.fileattr = HFS_ATTR_FILE_VALIDMASK;
-//        	attrp->nativeattr.forkattr = 0;
-//		VFSATTR_SET_SUPPORTED(fsap, f_attributes);
-//	}
-    
-//	fsap->f_create_time.tv_sec = hfsmp->hfs_itime;
-//	fsap->f_create_time.tv_nsec = 0;
-//	VFSATTR_SET_SUPPORTED(fsap, f_create_time);
-//	fsap->f_modify_time.tv_sec = hfsmp->vcbLsMod;
-//	fsap->f_modify_time.tv_nsec = 0;
-//	VFSATTR_SET_SUPPORTED(fsap, f_modify_time);
-	// We really don't have volume access time, they should check the root node, fake it up
-//	if (VFSATTR_IS_ACTIVE(fsap, f_access_time)) {
-//		struct timeval tv;
-//
-//		microtime(&tv);
-//		fsap->f_access_time.tv_sec = tv.tv_sec;
-//		fsap->f_access_time.tv_nsec = 0;
-//		VFSATTR_SET_SUPPORTED(fsap, f_access_time);
-//	}
-
-//	fsap->f_backup_time.tv_sec = hfsmp->vcbVolBkUp;
-//	fsap->f_backup_time.tv_nsec = 0;
-//	VFSATTR_SET_SUPPORTED(fsap, f_backup_time);
-	
-//	if (VFSATTR_IS_ACTIVE(fsap, f_fssubtype)) {
-//		u_int16_t subtype = 0;
-//
-//		/*
-//		 * Subtypes (flavors) for HFS
-//		 *   0:   Mac OS Extended
-//		 *   1:   Mac OS Extended (Journaled)
-//		 *   2:   Mac OS Extended (Case Sensitive)
-//		 *   3:   Mac OS Extended (Case Sensitive, Journaled)
-//		 *   4 - 127:   Reserved
-//		 * 128:   Mac OS Standard
-//		 *
-//		 */
-//		if ((hfsmp->hfs_flags & HFS_STANDARD) == 0) {
-//			if (hfsmp->jnl) {
-//				subtype |= HFS_SUBTYPE_JOURNALED;
-//			}
-//			if (hfsmp->hfs_flags & HFS_CASE_SENSITIVE) {
-//				subtype |= HFS_SUBTYPE_CASESENSITIVE;
-//			}
-//		}
-//#if CONFIG_HFS_STD
-//		else {
-//			subtype = HFS_SUBTYPE_STANDARDHFS;
-//		}
-//#endif
-//		fsap->f_fssubtype = subtype;
-//		VFSATTR_SET_SUPPORTED(fsap, f_fssubtype);
-//	}
-
-//	if (VFSATTR_IS_ACTIVE(fsap, f_vol_name)) {
-//		strlcpy(fsap->f_vol_name, (char *) hfsmp->vcbVN, MAXPATHLEN);
-//		VFSATTR_SET_SUPPORTED(fsap, f_vol_name);
-//	}
-//	if (VFSATTR_IS_ACTIVE(fsap, f_uuid)) {
-//		hfs_getvoluuid(hfsmp, fsap->f_uuid);
-//		VFSATTR_SET_SUPPORTED(fsap, f_uuid);
-//	}
 	return (0);
 }
 
@@ -4882,11 +4657,11 @@ hfs_cmount(struct mntarg *ma, void *data, uint64_t flags)
     int error;
 
     if (data == NULL)
-        return (EINVAL);
+        trace_return (EINVAL);
     
     error = copyin(data, &args, sizeof args);
     if (error)
-        return (error);
+        trace_return (error);
 
     ma = mount_argsu(ma, "from", args.fspec, MAXPATHLEN);
     ma = mount_arg(ma, "export", &args.export, sizeof(args.export));
@@ -4901,7 +4676,7 @@ hfs_cmount(struct mntarg *ma, void *data, uint64_t flags)
     
     error = kernel_mount(ma, flags);
 
-    return (error);
+    trace_return (error);
 }
 
 
@@ -4925,7 +4700,7 @@ struct vfsops hfs_vfsops = {
     .vfs_init               = hfs_init,
 	.vfs_uninit             = hfs_uninit,
     .vfs_extattrctl         = vfs_stdextattrctl,
-//    .vfs_sysctl             = hfs_sysctl,
+    .vfs_sysctl             = hfs_sysctl,
 //    .vfs_susp_clean         = ,
 //    .vfs_reclaim_lowervp    = ,
 //    .vfs_unlink_lowervp     = ,

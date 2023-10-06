@@ -2385,8 +2385,8 @@ int init_attrdata_vnode(struct hfsmount *hfsmp)
 	cat_fork.cf_extents[0].startBlock = 0;
 	cat_fork.cf_extents[0].blockCount = cat_fork.cf_blocks;
 
-	result = hfs_getnewvnode(hfsmp, NULL, NULL, &cat_desc, 0, &cat_attr, 
-				 &cat_fork, &vp, &newvnode_flags);
+    result = hfs_getnewvnode(hfsmp, NULL, NULL, &cat_desc, gnv_dfl, &cat_attr,
+                             &cat_fork, &vp, &newvnode_flags);
 	if (result == 0) {
 		hfsmp->hfs_attrdata_vp = vp;
 		hfs_unlock(VTOC(vp));

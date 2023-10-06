@@ -50,6 +50,7 @@
 #include <sys/sysctl.h>
 #include <uuid/uuid.h>
 #include <sys/ddisk.h>
+#include <sys/kdb.h>
 
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
@@ -1766,7 +1767,7 @@ hfs_vnop_ioctl( struct vop_ioctl_args /* {
 					//
 					// re-lock the pair now that we have the document-id
 					//
-					hfs_lockpair(cp, to_cp, HFS_EXCLUSIVE_LOCK);
+					hfs_lockpair(vp, to_vp, HFS_EXCLUSIVE_LOCK);
 					f_extinfo->document_id = new_id;
 				} else {
 					goto transfer_cleanup;

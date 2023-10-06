@@ -296,7 +296,7 @@ nextid:
 		}
 		if (result) {
 			/* For any other error, return the result */
-			return result;
+			return (result);
 		}
 
 		/*
@@ -3061,6 +3061,7 @@ struct packdirentry_state {
 	int            cbs_flags;		/* VNODE_READDIR_* flags */
 	u_int32_t      cbs_parentID;
 	u_int32_t      cbs_index;
+    off_t          cbs_uiooffset;
 	struct uio	*  cbs_uio;
 	ExtendedVCB *  cbs_hfsmp;
 	int            cbs_result;
@@ -3308,6 +3309,7 @@ encodestr:
 			catent.d_fileno = 0;  /* file number = 0 means skip entry */
 		else
 			catent.d_fileno = cnid;
+        catent.d_off = state->cbs_uiooffset + catent.d_reclen;
 		uioaddr = (caddr_t) &catent;
 	}
 
@@ -3331,6 +3333,7 @@ encodestr:
             }
             
 			++state->cbs_index;
+            state->cbs_uiooffset += uiosize;
 
 			/* Remember previous entry */
 			state->cbs_desc->cd_cnid = cnid;
@@ -3399,6 +3402,7 @@ encodestr:
 		entry->d_type = type;
 		entry->d_namlen = namelen;
 		entry->d_reclen = EXT_DIRENT_LEN(namelen);
+        catent.d_off = state->cbs_uiooffset + entry->d_reclen;
 		if (hide) {
 			/* File number = 0 means skip entry */
 			entry->d_fileno = 0;

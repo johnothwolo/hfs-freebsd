@@ -3215,7 +3215,7 @@ hfc_btree_open_ext(struct hfsmount *hfsmp, struct vnode **vpp, int ignore_btree_
 	}
 again:
 	cdesc.cd_flags |= CD_ISMETA;
-	error = hfs_getnewvnode(hfsmp, NULL, NULL, &cdesc, 0, &cattr, 
+    error = hfs_getnewvnode(hfsmp, NULL, NULL, &cdesc, gnv_dfl, &cattr, 
 							&cfork, &vp, &newvnode_flags);
 	if (error) {
 		printf("hfs: hfc_btree_open: hfs_getnewvnode error %d\n", error);
@@ -3226,9 +3226,8 @@ again:
 #if HFC_VERBOSE
 		printf("hfs: hfc_btree_open: file has UBC, try again\n");
 #endif
-		hfs_unlock(VTOC(vp));
-        vrecycle(vp);
 		vput(vp);
+//        vrecycle(vp); // FIXME: vrecycle
 		if (retry++ == 0)
 			goto again;
 		else
@@ -3246,7 +3245,6 @@ again:
 		}
 	}
 
-	hfs_unlock(VTOC(vp));
 	if (error == 0) {
 		*vpp = vp;
 		vref(vp);  /* keep a reference while its open */
@@ -3292,12 +3290,8 @@ hfc_btree_close(struct hfsmount *hfsmp, struct vnode *vp)
         error = BTClosePath(VTOF(vp));
 	}
     
-    hfs_unlock(VTOC(vp));
-    
-    vrele(vp);
-    vrecycle(vp);
     vput(vp);
-    
+//    vrecycle(vp); FIXME: vrecycle
 	return (error);
 }
 
@@ -3422,7 +3416,7 @@ hfc_btree_create(struct hfsmount *hfsmp, unsigned int nodesize, unsigned int ent
 	if (hfsmp->hfc_filevp)
 		panic("hfs: hfc_btree_create: hfc_filevp exists (vp = %p)", hfsmp->hfc_filevp);
 
-	error = hfs_vfs_root(HFSTOVFS(hfsmp), 0, &dvp);
+	error = hfs_vfs_root(HFSTOVFS(hfsmp), LK_EXCLUSIVE, &dvp);
 	if (error) {
 		return (error);
 	}
@@ -3594,10 +3588,8 @@ out:
 		vput(dvp);
 	}
 	if (vp) {
-		if (cp)
-			hfs_unlock(cp);
-		vrecycle(vp);
-		vput(vp);
+        vput(vp);
+//        vrecycle(vp); FIXME: vrecycle
 	}
 	return (error);
 }

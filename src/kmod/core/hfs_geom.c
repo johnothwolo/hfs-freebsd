@@ -69,6 +69,7 @@ void hfs_iterate_media_with_content(const char *content_uuid_cstring,
                                                 void *arg),
                                     void *arg)
 {
+    // iterate through media and match uuid. 1 continues interation, 0 stops it.
     panic("Unimplemented");
 }
 
